@@ -1,23 +1,26 @@
 -module(secer_input_gen).
--export([main/1]).
+-export([main/2]).
 
 -define(TIMEOUT,20000).
 -define(MIN_COV,0.9).
 -define(MAX_TESTS,1000).
+% -define(RELATIVE_PATH,"../tmp/").
+% -define(RETURN_PATH,"../test_gen").
+-define(FILE_PATH,"../").
+-define(TESTGEN_PATH,"./ebin").
 
-main([ProgramName,Function]) ->
+main(ProgramName,Function) ->
 	try 
-		%code:add_path(filename:absname("proper/ebin")),
-		%code:add_path(filename:absname("cuter/ebin")),
+		code:add_path(filename:absname("../proper/ebin")),
+		code:add_path(filename:absname("../cuter/ebin")),
 
-		%code:purge(secer_trace),
-		%code:load_abs("secer_trace"),
-		Pid = spawn(secer_trace,init,[]),
-		register(cuterIn,Pid),
-		printer("cuterIn"),
-		printer(Pid),
+		code:purge(secer_trace),
+		code:load_abs("secer_trace"),
 
-		main0(ProgramName,list_to_atom(Function))
+		register(cuterIn,spawn(secer_trace,init,[])),
+		FileName = ?FILE_PATH++atom_to_list(ProgramName),
+
+		main0(FileName,Function)
 	catch 
 		E:R ->
 			{E,R}
@@ -29,8 +32,12 @@ main([ProgramName,Function]) ->
 	end.
 
 main0(FileName,FunName) ->
-	ModuleName = list_to_atom(filename:basename(FileName,".erl")),
+	ModuleName = list_to_atom(filename:basename(?FILE_PATH++FileName,".erl")),
+
+	c:cd(?FILE_PATH),
 	compile:file(ModuleName,[debug_info]),
+	c:cd(?TESTGEN_PATH),
+	io:get_line("compilado y funcionando"),
 	{ok,Abstract} = smerl:for_file(FileName),
 	Exports = smerl:get_exports(Abstract),
 	case is_exported(Exports,FunName) of
@@ -49,11 +56,10 @@ main0(FileName,FunName) ->
 			NewDic = join_names_types(ParamList,InputTypes,Dic),
 
 			Input = (catch generate_instance({NewDic,ParamList})),
-			printer(Input),
+			%printer(Input),
 
 			CuterInputs = get_cuter_inputs(ModuleName,FunName,Input),
 			
-			printer(CuterInputs),
 			% exit(CuterInputs),
 
 			{FinalInputs,Coverage} = case CuterInputs of
@@ -80,43 +86,15 @@ main0(FileName,FunName) ->
 % GET CUTER INPUTS %
 %%%%%%%%%%%%%%%%%%%%
 get_cuter_inputs(ModuleName,FunName,Input) ->
-	printer("Self"),
-	printer(self()),
 	Self = self(),
 	spawn(
 		fun() ->
-			printer("Cuter Thread"),
-			printer(self()),
+			c:cd(?FILE_PATH),
 			catch cuter:run(ModuleName,FunName,Input,25,[{number_of_pollers,1},{number_of_solvers,1}]),
+			c:cd(?TESTGEN_PATH),
 			Self ! finish
 		end),
-	printer(cacafuti),
-	receive_fun().
-	% receive
-	% 	finish ->
-	% 		cuterIn ! {get_results,Self},
-	% 		cuterIn ! exit,
-	% 		receive
-	% 			[] ->	%QUE NO GENERE VALORES NO TIENE POR QUE IMPLICAR QUE NO PUDO RESOLVERLO
-	% 				cuterError;
-	% 			Inputs ->
-	% 				Inputs
-	% 		end;
-	% 	X ->
-	% 		printer(X),
-	% 		throw({"Unexpected reception",X})
-	% after ?TIMEOUT ->
-	% 		cuterIn ! {get_results,Self},
-	% 		receive
-	% 			[] ->	%QUE NO GENERE VALORES NO TIENE POR QUE IMPLICAR QUE NO PUDO RESOLVERLO
-	% 				cuterError;
-	% 			Inputs ->
-	% 				Inputs
-	% 		end
-	% end.
 
-receive_fun() ->
-	Self = self(),
 	receive
 		finish ->
 			cuterIn ! {get_results,Self},
@@ -127,8 +105,8 @@ receive_fun() ->
 				Inputs ->
 					Inputs
 			end;
-		_ ->
-			receive_fun()
+		X ->
+			throw({"Unexpected reception",X})
 	after ?TIMEOUT ->
 			cuterIn ! {get_results,Self},
 			receive
@@ -138,13 +116,13 @@ receive_fun() ->
 					Inputs
 			end
 	end.
- 
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%
 % MEASURE COVERAGE CUTER %
 %%%%%%%%%%%%%%%%%%%%%%%%%%
 measure_coverage_cuter(Inputs,Mod,FunName) ->
 	cover:start(),
-	cover:compile_module(atom_to_list(Mod)++".erl"),
+	cover:compile_module(?FILE_PATH++atom_to_list(Mod)++".erl"),
 	execute(Inputs,Mod,FunName),
 	getCoverage(Mod).
 
@@ -187,7 +165,7 @@ execute([Input|Rest],M,F) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%
 cover_compilation(Mod) ->
 	cover:start(),
-	cover:compile_module(atom_to_list(Mod)++".erl").
+	cover:compile_module(?FILE_PATH++atom_to_list(Mod)++".erl").
 
 gen_and_cover(0,_,_,_,_,_,Res) -> 
 	cover:stop(),
