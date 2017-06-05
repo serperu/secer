@@ -1,0 +1,3 @@
+[submodule “proper”]
+	path = proper
+	url = https://github.com/manopapad/proper.git
