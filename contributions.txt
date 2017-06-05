@@ -1,0 +1,39 @@
+
+*****************
+Typer -> Proper
+*****************
+- Conversion de tipos Typer a tipos Proper
+- Calculo de interseccion de tipos cuando una variable se utiliza varias veces en una clausula f(X,A,X)
+
+- Los tipos son los de las spec definidas por el usuario % ACTUALMENTE
+- Hacer interseccion entre tipos Typer y specs % PENDING
+
+- Calcular tipo por clausulas utilizando typer Tama % PENDING
+
+*************************************************
+Cuando Cuter no llega al % de cobertura esperado
+*************************************************
+- Se generan mas tests con Proper hasta: 
+1.- Alcanzar la cobertura deseada
+2.- Alcanzar el numero maximo de tests esperados
+3.- Alcanzar el timeout %PENDING
+
+- Para integers, cuando proper no genera un test nuevo despues de 50 intentos se incrementa 
+el rango de valores validos (al no poner rango explicito proper genera enteros entre -20 y 20 aproximadamente)
+
+TODO
++ Probar si funciona en concurrencia con ejemplos deterministas de concurrencia (Para el paper)
++ Buscar un programa o diseñar uno sencillo donde tengamos 3 versiones (Vital para el paper)
+1.- Programa original
+2.- Version refactorizada con errores
+3.- Version final sin errores
+
++ Parametro fun:
+¿Proper genera funs? 
+¿Cuter como lleva lo de las funs como parametros de entrada?
+
++ Tests fijando parametros
+Utilizar dicts en un servidor cuyo estado son 2 diccionarios (inputs y trazas).
+Cuando se calcule una mutacion con traza nueva se enviara un mensaje a si mismo con dicha mutacion y el atomo pending para procesarla. Si llega un mensaje de stop se abortara el procesamiento de los pendings restantes recibidos despues.
+
+
