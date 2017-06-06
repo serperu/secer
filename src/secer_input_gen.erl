@@ -4,220 +4,139 @@
 -define(TIMEOUT,20000).
 -define(MIN_COV,0.9).
 -define(MAX_TESTS,1000).
+-define(TMP_PATH,"./tmp/").
 
-main([ProgramName,Function]) ->
+main([ProgramName,Function,StartPos,EndPos]) -> %[string(),string(),string(),string()]
 	try 
-		%code:add_path(filename:absname("proper/ebin")),
-		%code:add_path(filename:absname("cuter/ebin")),
-
-		%code:purge(secer_trace),
-		%code:load_abs("secer_trace"),
-
 		register(cuterIn,spawn(secer_trace,init,[])),
+		register(tracer,spawn(secer_trace,init,[])),
 
-		printer(main0(ProgramName,list_to_atom(Function)))
+		ModuleName = list_to_atom(filename:basename(ProgramName,".erl")),
+		FunName = list_to_atom(Function),
+
+		% PART 1
+		{ParamClauses,TypeDicts} = analyze_types(ProgramName,FunName),
+		Inputs = execute_cuter(ModuleName,FunName,ParamClauses,TypeDicts),
+		printer(Inputs),
+
+		% PART 2
+		instrument_code(ProgramName,list_to_integer(StartPos),list_to_integer(EndPos)),
+		cover_compilation(ProgramName),
+		cover_execution(ModuleName,FunName,Inputs),
+
+		ModuleTmpName = list_to_atom(filename:basename(ProgramName,".erl")++"Tmp"),
+		execute_inputs(ModuleTmpName,FunName,Inputs,[])
+		
 	catch 
 		E:R ->
 			{E,R}
 	after
 		case whereis(cuterIn) of
-			undefined -> ok;
-			_ -> unregister(cuterIn)
+			undefined -> 
+				ok;
+			_ -> 
+				unregister(cuterIn),
+				unregister(tracer)
 		end
 	end.
 
-main0(FileName,FunName) ->
+analyze_types(FileName,FunName) ->
 	ModuleName = list_to_atom(filename:basename(FileName,".erl")),
 	compile:file(ModuleName,[debug_info]),
 	{ok,Abstract} = smerl:for_file(FileName),
 	Exports = smerl:get_exports(Abstract),
 	case is_exported(Exports,FunName) of
 		false -> 
+			printer("The selected function is not exported"),
 			throw("Unexported function");
 		true ->
-			FuncTypes = typer:get_type_inside_erl(["--show_exported", FileName]),
+			FuncTypes = typer_mod:get_type_inside_erl(["--show_exported", FileName]),
 			ExportedFunctionsTypes = lists:reverse(exported(Exports,FuncTypes,[])),
 			FunctionSpec = get_executed_function(ExportedFunctionsTypes,FunName),
-			{Origin,InputTypes} = get_inputs(FunctionSpec),
-			ParamNames = get_parameters(Abstract,FunName),
-
-			ParamList = lists:nth(rand:uniform(length(ParamNames)),ParamNames), 
-
-			Dic = dict:new(),
-			NewDic = join_names_types(ParamList,InputTypes,Dic),
-
-			Input = (catch generate_instance({NewDic,ParamList})),
-			% printer(Input),
-
-			CuterInputs = get_cuter_inputs(ModuleName,FunName,Input),
+			{_Origin,InputTypes} = get_inputs(FunctionSpec),
 			
-			% printer(CuterInputs),
-			% exit(CuterInputs),
-
-			{FinalInputs,Coverage} = case CuterInputs of
-				cuterError ->
-					printer("Error de cuter"),
-					cover_compilation(ModuleName),
-					gen_and_cover(?MAX_TESTS,NewDic,ParamList,ModuleName,FunName,0,{[Input],0});
-				_ ->
-					CuterIn = [Input|CuterInputs],
-					Cvg = measure_coverage_cuter(CuterIn,ModuleName,FunName),
-					case Cvg of
-						X when X < ?MIN_COV ->
-							gen_and_cover(?MAX_TESTS - length(CuterIn),NewDic,ParamList,ModuleName,FunName,0,{CuterIn,Cvg});
-						_ ->
-							cover:stop(),
-							{CuterIn,Cvg}
-					end
-			end
-			% printer({length(FinalInputs),Coverage}),
-			% printList(FinalInputs)
+			ParamNames = get_parameters(Abstract,FunName),
+			DictOfDicts = generate_all_clause_dicts(ParamNames,InputTypes),
+			{ParamNames,DictOfDicts}
 	end.
 
-%%%%%%%%%%%%%%%%%%%%
-% GET CUTER INPUTS %
-%%%%%%%%%%%%%%%%%%%%
-get_cuter_inputs(ModuleName,FunName,Input) ->
-	Self = self(),
-	spawn(
-		fun() ->
-			catch cuter:run(ModuleName,FunName,Input,25,[{number_of_pollers,1},{number_of_solvers,1}]),
-			Self ! finish
-		end),
-	receive_fun().
-	% receive
-	% 	finish ->
-	% 		cuterIn ! {get_results,Self},
-	% 		cuterIn ! exit,
-	% 		receive
-	% 			[] ->	%QUE NO GENERE VALORES NO TIENE POR QUE IMPLICAR QUE NO PUDO RESOLVERLO
-	% 				cuterError;
-	% 			Inputs ->
-	% 				Inputs
-	% 		end;
-	% 	X ->
-	% 		printer(X),
-	% 		throw({"Unexpected reception",X})
-	% after ?TIMEOUT ->
-	% 		cuterIn ! {get_results,Self},
-	% 		receive
-	% 			[] ->	%QUE NO GENERE VALORES NO TIENE POR QUE IMPLICAR QUE NO PUDO RESOLVERLO
-	% 				cuterError;
-	% 			Inputs ->
-	% 				Inputs
-	% 		end
-	% end.
+execute_cuter(ModuleName,FunName,ParamClauses,Dicts) ->
+	Params = lists:nth(rand:uniform(length(ParamClauses)),ParamClauses),
+	{ok,Dic} = dict:find(Params,Dicts),
 
-receive_fun() ->
-	Self = self(),
-	receive
-		finish ->
-			cuterIn ! {get_results,Self},
-			cuterIn ! exit,
-			receive
-				[] ->	%QUE NO GENERE VALORES NO TIENE POR QUE IMPLICAR QUE NO PUDO RESOLVERLO
-					cuterError;
-				Inputs ->
-					Inputs
-			end;
-		_ ->
-			receive_fun()
-	after ?TIMEOUT ->
-			cuterIn ! {get_results,Self},
-			receive
-				[] ->	%QUE NO GENERE VALORES NO TIENE POR QUE IMPLICAR QUE NO PUDO RESOLVERLO
-					cuterError;
-				Inputs ->
-					Inputs
-			end
-	end.
- 
-%%%%%%%%%%%%%%%%%%%%%%%%%%
-% MEASURE COVERAGE CUTER %
-%%%%%%%%%%%%%%%%%%%%%%%%%%
-measure_coverage_cuter(Inputs,Mod,FunName) ->
-	cover:start(),
-	cover:compile_module(atom_to_list(Mod)++".erl"),
-	execute(Inputs,Mod,FunName),
-	getCoverage(Mod).
+	Input = (catch generate_instance({Dic,Params})),
+	CuterInputs = get_cuter_inputs(ModuleName,FunName,Input),
 
-getCoverage(Mod) ->
-	{ok,CoverageResults} = cover:analyse(Mod,coverage,line),
-	Executed = executed_lines(CoverageResults,0),
-	Executed/length(CoverageResults).
+	[Input|CuterInputs].
 
-executed_lines([],Executed) -> Executed;
-executed_lines([Line|Remaining],Executed) ->
-	LineCov = element(2,Line),
-	IsCovered = element(1,LineCov),
+instrument_code(Program1,Start1,End1) ->
+	try
+		register(var_gen,spawn(secer_fv_server,init,[])),
 
-	case IsCovered of
-		0 -> executed_lines(Remaining,Executed);
-		1 -> executed_lines(Remaining,Executed+1)
+		Seleceted_var1 = secer_criterion_manager:get_temp_file(Program1,Start1,End1),
+		secer_criterion_manager:get_replaced_AST(Program1,Seleceted_var1),
+		var_gen ! reset
+
+	catch 
+		E:R ->
+			{E,R}
+	after
+		unregister(var_gen)
 	end.
 
-execute([],_,_) -> stop;
-execute([Input|Rest],M,F) ->
-	catch apply(M,F,Input),
-	execute(Rest,M,F).
+% main0(FileName,FunName) ->
+% 	ModuleName = list_to_atom(filename:basename(FileName,".erl")),
+% 	compile:file(ModuleName,[debug_info]),
+% 	{ok,Abstract} = smerl:for_file(FileName),
+% 	Exports = smerl:get_exports(Abstract),
+% 	case is_exported(Exports,FunName) of
+% 		false -> 
+% 			printer("The selected function is not exported"),
+% 			throw("Unexported function");
+% 		true ->
+% 			FuncTypes = typer_mod:get_type_inside_erl(["--show_exported", FileName]),
+% 			ExportedFunctionsTypes = lists:reverse(exported(Exports,FuncTypes,[])),
+% 			FunctionSpec = get_executed_function(ExportedFunctionsTypes,FunName),
+% 			{_Origin,InputTypes} = get_inputs(FunctionSpec),
+% 			ParamNames = get_parameters(Abstract,FunName),
 
-% execute([Input|Rest],M,F) ->
-%     Pid = spawn(M,F,Input),
-%     register(test,Pid),
-%     timer:sleep(60), 
-%     Pid2 = whereis(test),
-%     case Pid2 of
-%         undefined -> 
-%             finished;
-%         Pid -> 
-%             timer:exit_after(0,Pid,kill), 
-%             finished
-%     end,
-%     execute(Rest,M,F).
+% 			DictOfDicts = generate_all_clause_dicts(ParamNames,InputTypes),
+			
+% 			ParamList = lists:nth(rand:uniform(length(ParamNames)),ParamNames),
+% 			{ok,NewDic} = dict:find(ParamList,DictOfDicts),
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% MEASURE COVERAGE PROPER %
-%%%%%%%%%%%%%%%%%%%%%%%%%%%
-cover_compilation(Mod) ->
-	cover:start(),
-	cover:compile_module(atom_to_list(Mod)++".erl").
+% 			Input = (catch generate_instance({NewDic,ParamList})),
 
-gen_and_cover(0,_,_,_,_,_,Res) -> 
-	cover:stop(),
-	Res;
-gen_and_cover(N,TypeDic,Param,Mod,FunName,NoInputTimes,{Inputs,_}) ->
-	Input = generate_instance({TypeDic,Param}),
-	execute(Inputs,Mod,FunName),
-	Cvg = getCoverage(Mod),
-	case Cvg of
-		Cvg when Cvg > ?MIN_COV ->
-			gen_and_cover(0,TypeDic,Param,Mod,FunName,0,{[Input|Inputs],Cvg});
-		_ ->
-			case {lists:member(Input,Inputs),NoInputTimes} of
-				{true,Times} when Times > 20 ->
-					NewTypeDic = increment_integer_types(TypeDic),
-					gen_and_cover(N,NewTypeDic,Param,Mod,FunName,0,{Inputs,Cvg});
-				{true,_} ->
-					gen_and_cover(N,TypeDic,Param,Mod,FunName,NoInputTimes+1,{Inputs,Cvg});
-				{false,_} ->
-					gen_and_cover(N-1,TypeDic,Param,Mod,FunName,0,{[Input|Inputs],Cvg})
-			end
-	end.
+% 			CuterInputs = get_cuter_inputs(ModuleName,FunName,Input),
 
-increment_integer_types(Dic) ->
-	dict:map(
-		fun (K,V) ->
-				case V of
-					{number,any,integer} ->
-						{number,{int_rng,-100,100},integer};
-					{number,{int_rng,Min,Max},integer} ->
-						{number,{int_rng,10*Min,10*Max},integer};
-					Value ->
-						Value
-				end
-		end, 
-		Dic).
+% 			[Input|CuterInputs],
 
+% 			{FinalInputs,Coverage} = case CuterInputs of
+% 				cuterError ->
+% 					printer("CutEr error"),
+% 					cover_compilation(ModuleName),
+% 					gen_and_cover(?MAX_TESTS,DictOfDicts,ParamNames,ModuleName,FunName,0,{[Input],0});
+% 				_ ->
+% 					CuterIn = [Input|CuterInputs],
+% 					Cvg = measure_coverage_cuter(CuterIn,ModuleName,FunName),
+% 					gen_and_cover(?MAX_TESTS - length(CuterIn),DictOfDicts,ParamNames,ModuleName,FunName,0,{CuterIn,Cvg})
+% 			end
+% 	end.
+
+% TODO DELETE
+% case Cvg of
+% 	X when X < ?MIN_COV ->
+% 		%gen_and_cover(?MAX_TESTS - length(CuterIn),NewDic,ParamList,ModuleName,FunName,0,{CuterIn,Cvg});
+% 		gen_and_cover(?MAX_TESTS - length(CuterIn),DictOfDicts,ParamNames,ModuleName,FunName,0,{CuterIn,Cvg});
+% 	_ ->
+% 		cover:stop(),
+% 		{CuterIn,Cvg}
+% end
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%% PART 1: GET SPECS, GENERATE 1ST INPUT AND EXECUTE CUTER %%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % VERIFY IF THE CALLED FUNCTION IS EXPORTED AND GET SPEC %
@@ -247,9 +166,9 @@ get_executed_function([{FunName,Arity,Structure,StringSpec}|_],FunName) ->
 get_executed_function([_|Functions],FunName) ->
 	get_executed_function(Functions,FunName).
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% GET THE TYPES OF THE INPUTS %
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% GET THE TYPES OF THE INPUTS FROM THE SPEC %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 get_inputs(Function_spec) ->
 	{Origin,Inputs} = case Function_spec of
 		{_Name,_Arity,{contract,Spec},_String_spec} -> % defined by user
@@ -392,12 +311,17 @@ get_param_name(P) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % MAP PARAMETERS AND TYPES %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%
+generate_all_clause_dicts(ParamNames,ParamTypes) ->
+	NewList = lists:map(
+			fun (ParamList) ->
+				{ParamList,join_names_types(ParamList,ParamTypes,dict:new())}
+			end,
+			ParamNames),
+	dict:from_list(NewList).
+
 join_names_types([],[],Dic) -> 
 	Dic;
 join_names_types([Name|Names],[Type|Types],Dic) ->
-	% printer(Name),
-	% printer(Type),
-	% io:get_line(""),
 	case Name of
 		_ when is_tuple(Name) -> %PARA LISTAS Y TUPLAS
 			{Structure,NameTypes,_} = Type,
@@ -438,9 +362,9 @@ join_names_types_lists(Name,{HType,TType},Dic) ->
 			join_names_types([Tail],[TType],NewDic)
 	end.	
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% CREATE INSTANCES OF THE PARAMETERS %
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% CREATE AN INSTANCE OF THE PARAMETERS %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 generate_instance({TypeDic,ParamList}) ->
 	VarDic = dict:new(),
 	{Instance,_} = lists:mapfoldl(fun generate_instance/2, {TypeDic,VarDic}, ParamList),
@@ -547,7 +471,177 @@ is_variable(N) ->
 					false
 			end
 	end.
-	
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% EXECUTE CUTER AND GET THE GENERATED INPUTS %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+get_cuter_inputs(ModuleName,FunName,Input) ->
+	Self = self(),
+	c:flush(),
+	spawn(
+		fun() ->
+			catch cuter:run(ModuleName,FunName,Input,25,[{number_of_pollers,1},{number_of_solvers,1}]),
+			Self ! finish
+		end),
+	% receive_fun().
+	receive
+		finish ->
+			cuterIn ! {get_results,Self},
+			cuterIn ! exit,
+			receive
+				[] ->	%QUE NO GENERE VALORES NO TIENE POR QUE IMPLICAR QUE NO PUDO RESOLVERLO
+					[];
+				Inputs ->
+					Inputs
+			end;
+		X ->
+			printer(X),
+			throw({"Unexpected reception",X})
+	after ?TIMEOUT ->
+			cuterIn ! {get_results,Self},
+			receive
+				[] ->	%QUE NO GENERE VALORES NO TIENE POR QUE IMPLICAR QUE NO PUDO RESOLVERLO
+					[];
+				Inputs ->
+					Inputs
+			end
+	end.
+
+receive_fun() ->
+	Self = self(),
+	receive
+		finish ->
+			cuterIn ! {get_results,Self},
+			cuterIn ! exit,
+			receive
+				[] ->	%QUE NO GENERE VALORES NO TIENE POR QUE IMPLICAR QUE NO PUDO RESOLVERLO
+					cuterError;
+				Inputs ->
+					Inputs
+			end;
+		_ ->
+			receive_fun()
+	after ?TIMEOUT ->
+			cuterIn ! {get_results,Self},
+			receive
+				[] ->	%QUE NO GENERE VALORES NO TIENE POR QUE IMPLICAR QUE NO PUDO RESOLVERLO
+					cuterError;
+				Inputs ->
+					Inputs
+			end
+	end.
+ 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%% PART 2: INSTRUMENT THE CODE AND RANDOM GENERATION WITH PROPER  %%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% EXECUTE AN INPUT WITH TRACE %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+execute_inputs(_,_,[],Res) ->
+	lists:reverse(Res);
+execute_inputs(ModuleName,FunName,[Input|Inputs],Res) ->
+	ScValue = execute(ModuleName,FunName,Input),
+	execute_inputs(ModuleName,FunName,Inputs,[{Input,ScValue}|Res]).
+
+execute(MP,Fun,Input) ->
+	catch apply(MP,Fun,Input),
+	tracer ! {get_results,self()},
+	receive
+		X -> X
+	end.
+
+% execute([Input|Rest],M,F) ->	EXECUTION WITH TIMEOUT (FOR INFINITY LOOPS)
+%     Pid = spawn(M,F,Input),
+%     register(test,Pid),
+%     timer:sleep(60), 
+%     Pid2 = whereis(test),
+%     case Pid2 of
+%         undefined -> 
+%             finished;
+%         Pid -> 
+%             timer:exit_after(0,Pid,kill), 
+%             finished
+%     end,
+%     execute(Rest,M,F).
+
+
+%%%%%%%%%%%%%%%%%%%%
+% MEASURE COVERAGE %
+%%%%%%%%%%%%%%%%%%%%
+cover_compilation(Mod) ->
+	cover:start(),
+	cover:compile_module(Mod).
+
+cover_execution([],_,_) -> stop;
+cover_execution(M,F,[Input|Rest]) ->
+	catch apply(M,F,Input),
+	cover_execution(M,F,Rest).
+
+getCoverage(Mod) ->
+	{ok,CoverageResults} = cover:analyse(Mod,coverage,line),
+	Executed = executed_lines(CoverageResults,0),
+	Executed/length(CoverageResults).
+
+executed_lines([],Executed) -> Executed;
+executed_lines([Line|Remaining],Executed) ->
+	LineCov = element(2,Line),
+	IsCovered = element(1,LineCov),
+
+	case IsCovered of
+		0 -> executed_lines(Remaining,Executed);
+		1 -> executed_lines(Remaining,Executed+1)
+	end.
+
+%%%%%%%%%%%%%%%%
+% STILL UNUSED %
+%%%%%%%%%%%%%%%%
+
+gen_and_cover(0,_,_,_,_,_,Res) -> 
+	cover:stop(),
+	Res;
+gen_and_cover(N,DictOfDicts,ParamNames,Mod,FunName,NoInputTimes,{Inputs,_}) ->
+	Param = case length(ParamNames) of
+		1 ->
+			lists:nth(1,ParamNames);
+		Length ->
+			lists:nth(rand:uniform(Length),ParamNames)
+		end,
+	{ok,TypeDic} = dict:find(Param,DictOfDicts),
+
+	Input = generate_instance({TypeDic,Param}),
+	execute(Inputs,Mod,FunName),
+	Cvg = getCoverage(Mod),
+	case Cvg of
+		Cvg when Cvg > ?MIN_COV ->
+			gen_and_cover(0,TypeDic,Param,Mod,FunName,0,{[Input|Inputs],Cvg});
+		_ ->
+			case {lists:member(Input,Inputs),NoInputTimes} of
+				{true,Times} when Times > 20 ->
+					NewTypeDic = increment_integer_types(TypeDic),
+					NewDictOfDicts = dict:store(Param,NewTypeDic,DictOfDicts),
+					gen_and_cover(N,NewDictOfDicts,ParamNames,Mod,FunName,0,{Inputs,Cvg});
+				{true,_} ->
+					gen_and_cover(N,DictOfDicts,ParamNames,Mod,FunName,NoInputTimes+1,{Inputs,Cvg});
+				{false,_} ->
+					gen_and_cover(N-1,DictOfDicts,ParamNames,Mod,FunName,0,{[Input|Inputs],Cvg})
+			end
+	end.
+
+increment_integer_types(Dic) ->
+	dict:map(
+		fun (K,V) ->
+				case V of
+					{number,any,integer} ->
+						{number,{int_rng,-100,100},integer};
+					{number,{int_rng,Min,Max},integer} ->
+						{number,{int_rng,10*Min,10*Max},integer};
+					Value ->
+						Value
+				end
+		end, 
+		Dic).
+
 %%%%%%%%%
 % DEBUG %
 %%%%%%%%%

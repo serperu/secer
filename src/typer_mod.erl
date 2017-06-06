@@ -29,7 +29,7 @@
 %%               annotate the code of files with such type information.
 %%-----------------------------------------------------------------------
 
--module(typer).
+-module(typer_mod).
 
 -export([start/0, get_type_inside_erl/1]).
 

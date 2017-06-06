@@ -1,19 +1,19 @@
 -module(secer_criterion_manager).
 -export([get_replaced_AST/2,get_temp_file/3]).
--define(TMP_PATH,"../tmp/").
+-define(TMP_PATH,"./tmp/").
 % main() ->
 % 	register(var_gen,spawn(free_vars_server,init,[])),
 % 	register(tracer,spawn(trace_results,init,[])),
 % 	get_replaced_AST("prueba.erl",69,70).
 
 get_temp_file(FileI,StartPosition0,EndPosition0) ->
-	ModuleName = filename:basename("../"++FileI,".erl"),
+	ModuleName = filename:basename(FileI,".erl"),
 	StartPosition = 
 		StartPosition0 + 1,
 	EndPosition = 
 		EndPosition0 + 1,
 
-	{ok,FileContentBin}=file:read_file("../"++FileI),
+	{ok,FileContentBin}=file:read_file(FileI),
 	FileContent=unicode:characters_to_list(FileContentBin),
 	Selected=string:substr(FileContent,StartPosition,EndPosition-StartPosition),
 	io:format("~s~n",[Selected++"."]),
@@ -37,14 +37,14 @@ get_temp_file(FileI,StartPosition0,EndPosition0) ->
 	Selected.
 
 get_replaced_AST(FileI,Selected) -> 
-	ModuleName = filename:basename("../"++FileI,".erl"),
+	ModuleName = filename:basename(FileI,".erl"),
 	{ok,AST_code} = epp:parse_file(?TMP_PATH++ModuleName++"Tmp.erl",[],[]),
 	Final_AST = instrument_AST(AST_code,Selected),
 	{ok,Final_file} = file:open(?TMP_PATH++ModuleName++"Tmp.erl",[write]),
 	generate_final_code(Final_AST,Final_file),
 	compile:file(?TMP_PATH++ModuleName++"Tmp.erl",[{outdir,?TMP_PATH}]),
 	code:purge(list_to_atom(ModuleName++"Tmp")),
-	code:load_abs(ModuleName++"Tmp").
+	code:load_abs(?TMP_PATH++ModuleName++"Tmp").
 
 generate_final_code(AST,File) ->
 	lists:mapfoldl(fun revert_code/2,File,AST).
@@ -72,8 +72,6 @@ revert_code(Form,File) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% INSTRUMENTATION %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 instrument_AST(AST,Sc_name) ->
-	%printer(AST),
-	%io:get_line(""),
 	{New_AST,_} = lists:mapfoldl(fun map_instrument_AST/2,Sc_name,AST),
 	New_AST.
 
