@@ -1,3 +1,5 @@
 
 .DS_Store
 secer_requirements.txt
+more_files/*
+ebin/*

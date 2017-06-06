@@ -12,12 +12,10 @@ main([ProgramName,Function]) ->
 
 		%code:purge(secer_trace),
 		%code:load_abs("secer_trace"),
-		Pid = spawn(secer_trace,init,[]),
-		register(cuterIn,Pid),
-		printer("cuterIn"),
-		printer(Pid),
 
-		main0(ProgramName,list_to_atom(Function))
+		register(cuterIn,spawn(secer_trace,init,[])),
+
+		printer(main0(ProgramName,list_to_atom(Function)))
 	catch 
 		E:R ->
 			{E,R}
@@ -49,11 +47,11 @@ main0(FileName,FunName) ->
 			NewDic = join_names_types(ParamList,InputTypes,Dic),
 
 			Input = (catch generate_instance({NewDic,ParamList})),
-			printer(Input),
+			% printer(Input),
 
 			CuterInputs = get_cuter_inputs(ModuleName,FunName,Input),
 			
-			printer(CuterInputs),
+			% printer(CuterInputs),
 			% exit(CuterInputs),
 
 			{FinalInputs,Coverage} = case CuterInputs of
@@ -80,17 +78,12 @@ main0(FileName,FunName) ->
 % GET CUTER INPUTS %
 %%%%%%%%%%%%%%%%%%%%
 get_cuter_inputs(ModuleName,FunName,Input) ->
-	printer("Self"),
-	printer(self()),
 	Self = self(),
 	spawn(
 		fun() ->
-			printer("Cuter Thread"),
-			printer(self()),
 			catch cuter:run(ModuleName,FunName,Input,25,[{number_of_pollers,1},{number_of_solvers,1}]),
 			Self ! finish
 		end),
-	printer(cacafuti),
 	receive_fun().
 	% receive
 	% 	finish ->
