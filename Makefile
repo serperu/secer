@@ -17,7 +17,7 @@ clean:
 # 	erl -pa ebin csp_tracker/ebin -run csp_reversible run examples/ex_paper.csp -noshell -s erlang halt
 
 run1:
-	erl -pa ebin cuter/ebin proper/ebin -run secer_input_gen main b1.erl numbers 1021 1022 -noshell -s erlang halt
+	erl -pa ebin cuter/ebin proper/ebin -run secer run b1.erl numbers 1021 1022 -noshell -s erlang halt
 
 run2:
 	erl -pa cuter/ebin -run b1_fake numbers b1 numbers 1 2 -noshell -s erlang halt

@@ -1,9 +1,10 @@
 -module(secer_input_gen).
 -export([main/1]).
 
--define(TIMEOUT,20000).
--define(MIN_COV,0.9).
--define(MAX_TESTS,1000).
+-define(CUTER_TIMEOUT,20000).
+%-define(MIN_COV,0.9).
+%-define(MAX_TESTS,1000).
+
 -define(TMP_PATH,"./tmp/").
 
 main([ProgramName,Function,StartPos,EndPos]) -> %[string(),string(),string(),string()]
@@ -17,16 +18,21 @@ main([ProgramName,Function,StartPos,EndPos]) -> %[string(),string(),string(),str
 		% PART 1
 		{ParamClauses,TypeDicts} = analyze_types(ProgramName,FunName),
 		Inputs = execute_cuter(ModuleName,FunName,ParamClauses,TypeDicts),
-		printer(Inputs),
 
 		% PART 2
 		instrument_code(ProgramName,list_to_integer(StartPos),list_to_integer(EndPos)),
 		cover_compilation(ProgramName),
-		cover_execution(ModuleName,FunName,Inputs),
+		ModTmp = list_to_atom(filename:basename(ProgramName,".erl")++"Tmp"),
+		lists:map(
+			fun(E) ->
+				catch apply(ModuleName,FunName,E),
+				Cvg = get_coverage(ModuleName),
+				execute_input(ModTmp,FunName,E,Cvg)
+			end,
+			Inputs),
 
-		ModuleTmpName = list_to_atom(filename:basename(ProgramName,".erl")++"Tmp"),
-		execute_inputs(ModuleTmpName,FunName,Inputs,[])
-		
+		printer("cacafuti"),
+		gen_random_inputs(ModuleName,FunName,ParamClauses,TypeDicts,0)
 	catch 
 		E:R ->
 			{E,R}
@@ -483,13 +489,12 @@ get_cuter_inputs(ModuleName,FunName,Input) ->
 			catch cuter:run(ModuleName,FunName,Input,25,[{number_of_pollers,1},{number_of_solvers,1}]),
 			Self ! finish
 		end),
-	% receive_fun().
 	receive
 		finish ->
 			cuterIn ! {get_results,Self},
 			cuterIn ! exit,
 			receive
-				[] ->	%QUE NO GENERE VALORES NO TIENE POR QUE IMPLICAR QUE NO PUDO RESOLVERLO
+				[] ->	
 					[];
 				Inputs ->
 					Inputs
@@ -497,40 +502,16 @@ get_cuter_inputs(ModuleName,FunName,Input) ->
 		X ->
 			printer(X),
 			throw({"Unexpected reception",X})
-	after ?TIMEOUT ->
+	after ?CUTER_TIMEOUT ->
 			cuterIn ! {get_results,Self},
 			receive
-				[] ->	%QUE NO GENERE VALORES NO TIENE POR QUE IMPLICAR QUE NO PUDO RESOLVERLO
+				[] ->	
 					[];
 				Inputs ->
 					Inputs
 			end
 	end.
 
-receive_fun() ->
-	Self = self(),
-	receive
-		finish ->
-			cuterIn ! {get_results,Self},
-			cuterIn ! exit,
-			receive
-				[] ->	%QUE NO GENERE VALORES NO TIENE POR QUE IMPLICAR QUE NO PUDO RESOLVERLO
-					cuterError;
-				Inputs ->
-					Inputs
-			end;
-		_ ->
-			receive_fun()
-	after ?TIMEOUT ->
-			cuterIn ! {get_results,Self},
-			receive
-				[] ->	%QUE NO GENERE VALORES NO TIENE POR QUE IMPLICAR QUE NO PUDO RESOLVERLO
-					cuterError;
-				Inputs ->
-					Inputs
-			end
-	end.
- 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%% PART 2: INSTRUMENT THE CODE AND RANDOM GENERATION WITH PROPER  %%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -538,12 +519,6 @@ receive_fun() ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % EXECUTE AN INPUT WITH TRACE %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-execute_inputs(_,_,[],Res) ->
-	lists:reverse(Res);
-execute_inputs(ModuleName,FunName,[Input|Inputs],Res) ->
-	ScValue = execute(ModuleName,FunName,Input),
-	execute_inputs(ModuleName,FunName,Inputs,[{Input,ScValue}|Res]).
-
 execute(MP,Fun,Input) ->
 	catch apply(MP,Fun,Input),
 	tracer ! {get_results,self()},
@@ -551,6 +526,10 @@ execute(MP,Fun,Input) ->
 		X -> X
 	end.
 
+execute_input(ModuleName,FunName,Input,Cvg) ->
+	ScValue = execute(ModuleName,FunName,Input),
+	input_manager ! {add,Input,ScValue,Cvg},
+	ScValue.
 % execute([Input|Rest],M,F) ->	EXECUTION WITH TIMEOUT (FOR INFINITY LOOPS)
 %     Pid = spawn(M,F,Input),
 %     register(test,Pid),
@@ -573,12 +552,7 @@ cover_compilation(Mod) ->
 	cover:start(),
 	cover:compile_module(Mod).
 
-cover_execution([],_,_) -> stop;
-cover_execution(M,F,[Input|Rest]) ->
-	catch apply(M,F,Input),
-	cover_execution(M,F,Rest).
-
-getCoverage(Mod) ->
+get_coverage(Mod) ->
 	{ok,CoverageResults} = cover:analyse(Mod,coverage,line),
 	Executed = executed_lines(CoverageResults,0),
 	Executed/length(CoverageResults).
@@ -593,54 +567,132 @@ executed_lines([Line|Remaining],Executed) ->
 		1 -> executed_lines(Remaining,Executed+1)
 	end.
 
-%%%%%%%%%%%%%%%%
-% STILL UNUSED %
-%%%%%%%%%%%%%%%%
-
-gen_and_cover(0,_,_,_,_,_,Res) -> 
-	cover:stop(),
-	Res;
-gen_and_cover(N,DictOfDicts,ParamNames,Mod,FunName,NoInputTimes,{Inputs,_}) ->
-	Param = case length(ParamNames) of
-		1 ->
-			lists:nth(1,ParamNames);
-		Length ->
-			lists:nth(rand:uniform(Length),ParamNames)
+%%%%%%%%%%%%%%%%%%%
+% GENERATE RANDOM %
+%%%%%%%%%%%%%%%%%%%
+gen_random_inputs(Mod,Fun,ParamClauses,Dicts,10000) ->
+	NewDicts = dict:map(
+		fun(_,V) ->
+			increment_integer_types(V)
 		end,
-	{ok,TypeDic} = dict:find(Param,DictOfDicts),
+		Dicts),
+	gen_random_inputs(Mod,Fun,ParamClauses,NewDicts,0);
+gen_random_inputs(Mod,Fun,ParamClauses,Dicts,N) ->
+	Params = lists:nth(rand:uniform(length(ParamClauses)),ParamClauses),
+	{ok,Dic} = dict:find(Params,Dicts),	
 
-	Input = generate_instance({TypeDic,Param}),
-	execute(Inputs,Mod,FunName),
-	Cvg = getCoverage(Mod),
-	case Cvg of
-		Cvg when Cvg > ?MIN_COV ->
-			gen_and_cover(0,TypeDic,Param,Mod,FunName,0,{[Input|Inputs],Cvg});
+	Input = (catch generate_instance({Dic,Params})),
+	Res = validate_input(Mod,Fun,Input,Params,Dic),
+	case Res of
+		X when X == contained orelse X == existent_trace ->
+			gen_random_inputs(Mod,Fun,ParamClauses,Dicts,N+1);
 		_ ->
-			case {lists:member(Input,Inputs),NoInputTimes} of
-				{true,Times} when Times > 20 ->
-					NewTypeDic = increment_integer_types(TypeDic),
-					NewDictOfDicts = dict:store(Param,NewTypeDic,DictOfDicts),
-					gen_and_cover(N,NewDictOfDicts,ParamNames,Mod,FunName,0,{Inputs,Cvg});
-				{true,_} ->
-					gen_and_cover(N,DictOfDicts,ParamNames,Mod,FunName,NoInputTimes+1,{Inputs,Cvg});
-				{false,_} ->
-					gen_and_cover(N-1,DictOfDicts,ParamNames,Mod,FunName,0,{[Input|Inputs],Cvg})
+			gen_random_inputs(Mod,Fun,ParamClauses,Dicts,0)
+	end.
+
+validate_input(Mod,Fun,Input,Params,Dic) ->
+	ModTmp = list_to_atom(atom_to_list(Mod)++"Tmp"),
+	input_manager ! {contained,Input,self()},
+	receive
+		true ->
+			contained;
+		false ->
+			catch apply(Mod,Fun,Input),
+			Cvg = get_coverage(Mod),
+			Trace = execute_input(ModTmp,Fun,Input,Cvg),
+			input_manager ! {existing_trace,Trace,self()},
+			receive
+				true ->
+					existent_trace;
+				false ->
+					gen_guided_input(Mod,Fun,Input,Params,Dic)
 			end
 	end.
 
+gen_guided_input(Mod,Fun,Input,Params,Dic) ->
+	case length(Input) of
+		Size when Size < 2 ->
+			next;
+		Size ->
+			NewInputs = gen_new_inputs(Input,Params,Dic),
+			[validate_input(Mod,Fun,NewInput,Params,Dic)|| NewInput <- NewInputs]
+	end. 
+
+gen_new_inputs(Input,Params,Dic) ->
+	{NewInputs,_} = lists:mapfoldl(
+		fun(E,Acc) ->
+			{NewParam,_} = generate_instance(E,{Dic,dict:new()}),
+			{replacenth(Acc,NewParam,Input),Acc+1}
+		end,
+		1,
+		Params),
+	NewInputs.
+	
 increment_integer_types(Dic) ->
 	dict:map(
-		fun (K,V) ->
+		fun (_,V) ->
 				case V of
 					{number,any,integer} ->
-						{number,{int_rng,-100,100},integer};
+						{number,{int_rng,-50,50},integer};
 					{number,{int_rng,Min,Max},integer} ->
-						{number,{int_rng,10*Min,10*Max},integer};
+						case {Min =< 0, Max >= 0} of
+							{false,true} ->
+								{number,{int_rng,Max,10*(Max-Min)},integer};
+							{true,false} ->
+								{number,{int_rng,-10*(Min-Max),Max},integer};
+							_ ->
+								{number,{int_rng,10*Min,10*Max},integer}
+						end;
 					Value ->
 						Value
 				end
 		end, 
 		Dic).
+
+%%%%%%%%%%
+% UNUSED %
+%%%%%%%%%%
+% gen_and_cover(0,_,_,_,_,_,Res) -> 
+% 	cover:stop(),
+% 	Res;
+% gen_and_cover(N,DictOfDicts,ParamNames,Mod,FunName,NoInputTimes,{Inputs,_}) ->
+% 	Param = case length(ParamNames) of
+% 		1 ->
+% 			lists:nth(1,ParamNames);
+% 		Length ->
+% 			lists:nth(rand:uniform(Length),ParamNames)
+% 		end,
+% 	{ok,TypeDic} = dict:find(Param,DictOfDicts),
+
+% 	Input = generate_instance({TypeDic,Param}),
+% 	execute(Inputs,Mod,FunName),
+% 	Cvg = get_coverage(Mod),
+% 	case Cvg of
+% 		Cvg when Cvg > 0.9 -> %?MIN_COV
+% 			gen_and_cover(0,TypeDic,Param,Mod,FunName,0,{[Input|Inputs],Cvg});
+% 		_ ->
+% 			case {lists:member(Input,Inputs),NoInputTimes} of
+% 				{true,Times} when Times > 20 ->
+% 					NewTypeDic = increment_integer_types(TypeDic),
+% 					NewDictOfDicts = dict:store(Param,NewTypeDic,DictOfDicts),
+% 					gen_and_cover(N,NewDictOfDicts,ParamNames,Mod,FunName,0,{Inputs,Cvg});
+% 				{true,_} ->
+% 					gen_and_cover(N,DictOfDicts,ParamNames,Mod,FunName,NoInputTimes+1,{Inputs,Cvg});
+% 				{false,_} ->
+% 					gen_and_cover(N-1,DictOfDicts,ParamNames,Mod,FunName,0,{[Input|Inputs],Cvg})
+% 			end
+% 	end.
+
+%%%%%%%%%%%%
+%%% MISC %%%
+%%%%%%%%%%%%
+replacenth(Index,Value,List) ->
+ replacenth(Index-1,Value,List,[],0).
+
+replacenth(ReplaceIndex,Value,[_|List],Acc,ReplaceIndex) ->
+ lists:reverse(Acc)++[Value|List];
+replacenth(ReplaceIndex,Value,[V|List],Acc,Index) ->
+ replacenth(ReplaceIndex,Value,List,[V|Acc],Index+1).
 
 %%%%%%%%%
 % DEBUG %
