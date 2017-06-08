@@ -5,6 +5,9 @@
 	{
 		empty_trace = dict:new(), 
 		valued_trace = dict:new(),
+
+		same_trace = dict:new(),
+		different_trace = dict:new(),
 		cvg = 0
 	}).
 
@@ -59,9 +62,79 @@ loop(State) ->
 					}
 			end,
 			loop(NewState);
+		{add,Input,Trace,Trace,Cvg} -> 
+		 	NewState = case Trace of
+				[] ->
+					State#state
+					{
+						empty_trace =
+							dict:store(
+								Input,
+								Trace,
+								State#state.empty_trace),
+						same_trace = 
+							dict:store(
+								Input,
+								Trace,
+								State#state.same_trace),
+						cvg = Cvg
+					};
+				_ ->
+					State#state
+					{
+						valued_trace =
+							dict:store(
+								Input,
+								Trace,
+								State#state.valued_trace),
+						same_trace = 
+							dict:store(
+								Input,
+								Trace,
+								State#state.same_trace),
+						cvg = Cvg
+					}
+			end,
+			loop(NewState);
+		{add,Input,Trace1,Trace2,Cvg} -> 
+		 	NewState = case Trace1 of
+				[] ->
+					State#state
+					{
+						empty_trace =
+							dict:store(
+								Input,
+								Trace1,
+								State#state.empty_trace),
+						different_trace = 
+							dict:store(
+								Input,
+								{Trace1,Trace2},
+								State#state.different_trace),
+						cvg = Cvg
+					};
+				_ ->
+					State#state
+					{
+						valued_trace =
+							dict:store(
+								Input,
+								Trace1,
+								State#state.valued_trace),
+						different_trace = 
+							dict:store(
+								Input,
+								{Trace1,Trace2},
+								State#state.different_trace),
+						cvg = Cvg
+					}
+			end,
+			loop(NewState);
 		{get_results,Pid} ->
-			{Empty,Valued,Cvg} = {State#state.empty_trace,State#state.valued_trace,State#state.cvg},
-			Pid ! {Empty,Valued,Cvg};
+			{Empty,Valued,Same,Different,Cvg} = 
+				{State#state.empty_trace, State#state.valued_trace,
+					State#state.same_trace,State#state.different_trace,State#state.cvg},
+			Pid ! {Empty,Valued,Same,Different,Cvg};
 
 		Other ->
 			erlang:exit(

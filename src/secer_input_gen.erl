@@ -1,13 +1,52 @@
 -module(secer_input_gen).
--export([main/1]).
-
--define(CUTER_TIMEOUT,20000).
-%-define(MIN_COV,0.9).
-%-define(MAX_TESTS,1000).
+-export([main/5,main/8]).
 
 -define(TMP_PATH,"./tmp/").
 
-main([ProgramName,Function,StartPos,EndPos]) -> %[string(),string(),string(),string()]
+main(Program1,Start1,End1,Program2,Start2,End2,Function,Time) ->
+	try 
+		register(cuterIn,spawn(secer_trace,init,[])),
+		register(tracer,spawn(secer_trace,init,[])),
+
+		ModuleName1 = list_to_atom(filename:basename(Program1,".erl")),
+		ModuleName2 = list_to_atom(filename:basename(Program2,".erl")),
+		FunName = list_to_atom(Function),
+
+		% PART 1
+		{ParamClauses,TypeDicts} = analyze_types(Program1,FunName),
+		TimeOut = Time div 3 * 2,
+		Inputs = execute_cuter(ModuleName1,FunName,ParamClauses,TypeDicts,TimeOut),
+
+		printer(Inputs),
+		%io:get_line(""),
+		% PART 2
+		instrument_code(Program1,list_to_integer(Start1),list_to_integer(End1)),
+		instrument_code(Program2,list_to_integer(Start2),list_to_integer(End2)),
+		cover_compilation(Program1),
+		ModTmp1 = list_to_atom(filename:basename(Program1,".erl")++"Tmp"),
+		ModTmp2 = list_to_atom(filename:basename(Program2,".erl")++"Tmp"),
+		lists:map(
+			fun(E) ->
+				catch apply(ModuleName1,FunName,E),
+				Cvg = get_coverage(ModuleName1),
+				execute_input(ModTmp1,ModTmp2,FunName,E,Cvg)
+			end,
+			Inputs),
+		gen_random_inputs(ModuleName1,ModuleName2,FunName,ParamClauses,TypeDicts,0)
+	catch 
+		E:R ->
+			{E,R}
+	after
+		case whereis(cuterIn) of
+			undefined -> 
+				ok;
+			_ -> 
+				unregister(cuterIn),
+				unregister(tracer)
+		end
+	end.
+
+main(ProgramName,StartPos,EndPos,Function,Time) -> %(string(),string(),string(),string())
 	try 
 		register(cuterIn,spawn(secer_trace,init,[])),
 		register(tracer,spawn(secer_trace,init,[])),
@@ -17,7 +56,8 @@ main([ProgramName,Function,StartPos,EndPos]) -> %[string(),string(),string(),str
 
 		% PART 1
 		{ParamClauses,TypeDicts} = analyze_types(ProgramName,FunName),
-		Inputs = execute_cuter(ModuleName,FunName,ParamClauses,TypeDicts),
+		TimeOut = Time div 3 * 2,
+		Inputs = execute_cuter(ModuleName,FunName,ParamClauses,TypeDicts,TimeOut),
 
 		% PART 2
 		instrument_code(ProgramName,list_to_integer(StartPos),list_to_integer(EndPos)),
@@ -30,9 +70,7 @@ main([ProgramName,Function,StartPos,EndPos]) -> %[string(),string(),string(),str
 				execute_input(ModTmp,FunName,E,Cvg)
 			end,
 			Inputs),
-
-		printer("cacafuti"),
-		gen_random_inputs(ModuleName,FunName,ParamClauses,TypeDicts,0)
+		gen_random_inputs(ModuleName,empty,FunName,ParamClauses,TypeDicts,0)
 	catch 
 		E:R ->
 			{E,R}
@@ -66,12 +104,12 @@ analyze_types(FileName,FunName) ->
 			{ParamNames,DictOfDicts}
 	end.
 
-execute_cuter(ModuleName,FunName,ParamClauses,Dicts) ->
+execute_cuter(ModuleName,FunName,ParamClauses,Dicts,TimeOut) ->
 	Params = lists:nth(rand:uniform(length(ParamClauses)),ParamClauses),
 	{ok,Dic} = dict:find(Params,Dicts),
 
 	Input = (catch generate_instance({Dic,Params})),
-	CuterInputs = get_cuter_inputs(ModuleName,FunName,Input),
+	CuterInputs = get_cuter_inputs(ModuleName,FunName,Input,TimeOut),
 
 	[Input|CuterInputs].
 
@@ -481,14 +519,16 @@ is_variable(N) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % EXECUTE CUTER AND GET THE GENERATED INPUTS %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-get_cuter_inputs(ModuleName,FunName,Input) ->
+get_cuter_inputs(ModuleName,FunName,Input,TimeOut) ->
 	Self = self(),
 	c:flush(),
-	spawn(
+	{ok, Fd} = file:open(?TMP_PATH++"cuter.txt", [write]),
+	register(cuterProcess,spawn(
 		fun() ->
+			group_leader(Fd, self()),
 			catch cuter:run(ModuleName,FunName,Input,25,[{number_of_pollers,1},{number_of_solvers,1}]),
 			Self ! finish
-		end),
+		end)),
 	receive
 		finish ->
 			cuterIn ! {get_results,Self},
@@ -502,7 +542,8 @@ get_cuter_inputs(ModuleName,FunName,Input) ->
 		X ->
 			printer(X),
 			throw({"Unexpected reception",X})
-	after ?CUTER_TIMEOUT ->
+	after TimeOut * 1000 -> 
+			timer:exit_after(0,cuterProcess,kill),
 			cuterIn ! {get_results,Self},
 			receive
 				[] ->	
@@ -526,10 +567,16 @@ execute(MP,Fun,Input) ->
 		X -> X
 	end.
 
-execute_input(ModuleName,FunName,Input,Cvg) ->
-	ScValue = execute(ModuleName,FunName,Input),
+execute_input(Mod,FunName,Input,Cvg) ->
+	ScValue = execute(Mod,FunName,Input),
 	input_manager ! {add,Input,ScValue,Cvg},
 	ScValue.
+
+execute_input(Mod1,Mod2,FunName,Input,Cvg) ->
+	ScValue1 = execute(Mod1,FunName,Input),
+	ScValue2 = execute(Mod2,FunName,Input),
+	input_manager ! {add,Input,ScValue1,ScValue2,Cvg},
+	{ScValue1,ScValue2}.
 % execute([Input|Rest],M,F) ->	EXECUTION WITH TIMEOUT (FOR INFINITY LOOPS)
 %     Pid = spawn(M,F,Input),
 %     register(test,Pid),
@@ -570,6 +617,29 @@ executed_lines([Line|Remaining],Executed) ->
 %%%%%%%%%%%%%%%%%%%
 % GENERATE RANDOM %
 %%%%%%%%%%%%%%%%%%%
+
+gen_random_inputs(Mod,empty,Fun,ParamClauses,Dicts,N) ->
+	gen_random_inputs(Mod,Fun,ParamClauses,Dicts,N);
+gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,Dicts,10000) ->
+	NewDicts = dict:map(
+		fun(_,V) ->
+			increment_integer_types(V)
+		end,
+		Dicts),
+	gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,NewDicts,0);
+gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,Dicts,N) ->
+	Params = lists:nth(rand:uniform(length(ParamClauses)),ParamClauses),
+	{ok,Dic} = dict:find(Params,Dicts),	
+
+	Input = (catch generate_instance({Dic,Params})),
+	Res = validate_input(Mod1,Mod2,Fun,Input,Params,Dic),
+	case Res of
+		X when X == contained orelse X == existent_trace ->
+			gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,Dicts,N+1);
+		_ ->
+			gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,Dicts,0)
+	end.
+
 gen_random_inputs(Mod,Fun,ParamClauses,Dicts,10000) ->
 	NewDicts = dict:map(
 		fun(_,V) ->
@@ -608,6 +678,25 @@ validate_input(Mod,Fun,Input,Params,Dic) ->
 					gen_guided_input(Mod,Fun,Input,Params,Dic)
 			end
 	end.
+validate_input(Mod1,Mod2,Fun,Input,Params,Dic) ->
+	ModTmp1 = list_to_atom(atom_to_list(Mod1)++"Tmp"),
+	ModTmp2 = list_to_atom(atom_to_list(Mod2)++"Tmp"),
+	input_manager ! {contained,Input,self()},
+	receive
+		true ->
+			contained;
+		false ->
+			catch apply(Mod1,Fun,Input),
+			Cvg = get_coverage(Mod1),
+			{Trace1,Trace2} = execute_input(ModTmp1,ModTmp2,Fun,Input,Cvg),
+			input_manager ! {existing_trace,Trace1,self()},
+			receive
+				true ->
+					existent_trace;
+				false ->
+					gen_guided_input(Mod1,Mod2,Fun,Input,Params,Dic)
+			end
+	end.
 
 gen_guided_input(Mod,Fun,Input,Params,Dic) ->
 	case length(Input) of
@@ -616,6 +705,14 @@ gen_guided_input(Mod,Fun,Input,Params,Dic) ->
 		Size ->
 			NewInputs = gen_new_inputs(Input,Params,Dic),
 			[validate_input(Mod,Fun,NewInput,Params,Dic)|| NewInput <- NewInputs]
+	end. 
+gen_guided_input(Mod1,Mod2,Fun,Input,Params,Dic) ->
+	case length(Input) of
+		Size when Size < 2 ->
+			next;
+		Size ->
+			NewInputs = gen_new_inputs(Input,Params,Dic),
+			[validate_input(Mod1,Mod2,Fun,NewInput,Params,Dic)|| NewInput <- NewInputs]
 	end. 
 
 gen_new_inputs(Input,Params,Dic) ->

@@ -15,30 +15,16 @@ clean:
 
 # run_paper:
 # 	erl -pa ebin csp_tracker/ebin -run csp_reversible run examples/ex_paper.csp -noshell -s erlang halt
-
+# erl -pa ebin cuter/ebin proper/ebin -run secer run b1.erl 1021 1022 b1_slice.erl 712 713 numbers 15 -noshell -s erlang halt
 run1:
-	erl -pa ebin cuter/ebin proper/ebin -run secer run b1.erl numbers 1021 1022 -noshell -s erlang halt
+	erl -pa ebin cuter/ebin proper/ebin -run secer run b1.erl 1021 1022 numbers 15 -noshell -s erlang halt
 
 run2:
-	erl -pa cuter/ebin -run b1_fake numbers b1 numbers 1 2 -noshell -s erlang halt
+	erl -pa ebin cuter/ebin proper/ebin -run secer run b1_slice.erl 712 713 numbers 15 -noshell -s erlang halt
 
 run3:
-	erl -pa ebin cuter/ebin -run b1_fake numbers2 -noshell -s erlang halt
+	erl -pa ebin cuter/ebin proper/ebin -run secer run b1.erl 1025 1026 b1_slice.erl 712 713 numbers 15 -noshell -s erlang halt
 
-# run4:
-# 	erl -pa ebin csp_tracker/ebin -run csp_reversible run examples/ex4.csp -noshell -s erlang halt
-
-# run5:
-# 	erl -pa ebin csp_tracker/ebin -run csp_reversible run examples/ex5.csp -noshell -s erlang halt
-
-# run6:
-# 	erl -pa ebin csp_tracker/ebin -run csp_reversible run examples/ex6.csp -noshell -s erlang halt
-
-# run7:
-# 	erl -pa ebin csp_tracker/ebin -run csp_reversible run examples/ex7.csp -noshell -s erlang halt
-
-# run8:
-# 	erl -pa ebin csp_tracker/ebin -run csp_reversible run examples/ex8.csp -noshell -s erlang halt
 
 # update_sm:
 # 	@cd csp_tracker; git checkout master && git pull
