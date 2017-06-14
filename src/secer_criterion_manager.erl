@@ -1,45 +1,45 @@
 -module(secer_criterion_manager).
--export([get_replaced_AST/2,get_temp_file/3]).
+-export([get_replaced_AST/4,get_temp_AST/4]).
 -define(TMP_PATH,"./tmp/").
-% main() ->
-% 	register(var_gen,spawn(free_vars_server,init,[])),
-% 	register(tracer,spawn(trace_results,init,[])),
-% 	get_replaced_AST("prueba.erl",69,70).
 
-get_temp_file(FileI,StartPosition0,EndPosition0) ->
-	ModuleName = filename:basename(FileI,".erl"),
-	StartPosition = 
-		StartPosition0 + 1,
-	EndPosition = 
-		EndPosition0 + 1,
-
-	{ok,FileContentBin}=file:read_file(FileI),
-	FileContent=unicode:characters_to_list(FileContentBin),
-	Selected=string:substr(FileContent,StartPosition,EndPosition-StartPosition),
-	io:format("~s~n",[Selected++"."]),
-   	Exp = case erl_scan:string(Selected++".") of
-	      	{ok,Tok,_}->	
-	      		case erl_parse:parse_exprs(Tok) of
-          			{ok,[Exp_]}-> Exp_;
-          			_-> {}
- 				end;
-	      	_->{}
+get_temp_AST(FileI,Line,Var,Occurrence) ->
+	AtomVar = list_to_atom(Var),
+	{ok,AST_code} = epp:parse_file(FileI,[],[]),
+	{Replaced_AST,Replaced} = 
+		lists:mapfoldl(fun(Elem,Found) -> 
+			{New_AST,{_,Located}} = erl_syntax_lib:mapfold(
+					fun(N,{Acc,F}) ->
+						case N of
+							{var,Line,AtomVar} when Acc == Occurrence ->
+								{erl_syntax:atom(slicing_criterion),{Acc+1,true}};
+							{var,Line,AtomVar} ->
+								{N,{Acc+1,F}};
+							_ ->
+								{N,{Acc,F}}
+						end
+					end,
+					{1,Found},
+					Elem),
+					{New_AST,Located}
+				end,
+				false,
+				AST_code),
+	case Replaced of
+		true ->
+			Replaced_AST;
+		false ->
+			io:format("No variable ~s occurrence ~p found in ~s line ~p\n",[Var,Occurrence,FileI,Line]),
+			printer(whereis(secer)),
+			secer ! die
+			%exit(0)
 	end,
-	case Exp of 
-		{} -> 
-			[];
-		_ -> 
-		    NFileContent=string:substr(FileContent,1,StartPosition-1)
-	                 ++"slicing_criterion"
-	                 ++string:substr(FileContent,EndPosition,(length(FileContent)-EndPosition)+1),
-	    	ok = file:write_file(?TMP_PATH++ModuleName++"Tmp.erl",list_to_binary(NFileContent),[{encoding, utf8}])
-	end,
-	Selected.
+	Replaced_AST.
 
-get_replaced_AST(FileI,Selected) -> 
+get_replaced_AST(FileI,Line,Var,Occurrence) -> 
 	ModuleName = filename:basename(FileI,".erl"),
-	{ok,AST_code} = epp:parse_file(?TMP_PATH++ModuleName++"Tmp.erl",[],[]),
-	Final_AST = instrument_AST(AST_code,Selected),
+	%{ok,AST_code} = epp:parse_file(?TMP_PATH++ModuleName++"Tmp.erl",[],[]),
+	AST_code = get_temp_AST(FileI,Line,Var,Occurrence),
+	Final_AST = instrument_AST(AST_code,Var),
 	{ok,Final_file} = file:open(?TMP_PATH++ModuleName++"Tmp.erl",[write]),
 	generate_final_code(Final_AST,Final_file),
 	compile:file(?TMP_PATH++ModuleName++"Tmp.erl",[{outdir,?TMP_PATH}]),
@@ -540,7 +540,7 @@ replace_pattern_with_free_variables(Pattern,[{_,_,M}]) -> % DEVUELVE EN FORMATO 
 	replacenth(M,gen_and_put_scFreeVar(),Modified_pattern);
 replace_pattern_with_free_variables(Pattern,[{_Type1,_N1,M1},{_Type,N,M2}|T]) ->
 	New_pattern = replace_after_position(Pattern,M1),
-
+	
 	Sc_elem = lists:nth(M1,New_pattern),
 	Children = erl_syntax:subtrees(Sc_elem),
 	Child = lists:nth(N,Children),
@@ -639,8 +639,16 @@ replace_after_position([H|T],Index,New_list,Pos,Dic) ->
 		false ->
 			case erl_syntax:type(H) of 
 				variable ->  
-					{Free_var,Dic2} = gen_free_var_before_sc(H,Dic),
-					replace_after_position(T,Index,[Free_var|New_list],Pos+1,Dic2);
+						Ann = erl_syntax:get_ann(H),
+						[{env,Bounded_vars},_,_] = Ann,
+
+						case lists:member(erl_syntax:variable_name(H),Bounded_vars) of
+							true ->
+								replace_after_position(T,Index,[H|New_list],Pos+1,Dic);
+							false ->
+								{Free_var,Dic2} = gen_free_var_before_sc(H,Dic),
+								replace_after_position(T,Index,[Free_var|New_list],Pos+1,Dic2)
+						end;
 				class_qualifier ->
 					New_H = erl_syntax_lib:map(fun(Node) ->
 											case {erl_syntax:type(Node),erl_syntax:is_leaf(Node)} of

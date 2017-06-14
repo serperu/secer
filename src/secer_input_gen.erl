@@ -1,9 +1,9 @@
 -module(secer_input_gen).
--export([main/5,main/8]).
+-export([main/6,main/10]).
 
 -define(TMP_PATH,"./tmp/").
 
-main(Program1,Start1,End1,Program2,Start2,End2,Function,Time) ->
+main(Program1,Line1,Var1,Oc1,Program2,Line2,Var2,Oc2,Function,Time) ->
 	try 
 		register(cuterIn,spawn(secer_trace,init,[])),
 		register(tracer,spawn(secer_trace,init,[])),
@@ -16,20 +16,31 @@ main(Program1,Start1,End1,Program2,Start2,End2,Function,Time) ->
 		{ParamClauses,TypeDicts} = analyze_types(Program1,FunName),
 		TimeOut = Time div 3 * 2,
 		Inputs = execute_cuter(ModuleName1,FunName,ParamClauses,TypeDicts,TimeOut),
-
-		printer(Inputs),
-		%io:get_line(""),
 		% PART 2
-		instrument_code(Program1,list_to_integer(Start1),list_to_integer(End1)),
-		instrument_code(Program2,list_to_integer(Start2),list_to_integer(End2)),
-		cover_compilation(Program1),
+		instrument_code(Program1,list_to_integer(Line1),Var1,list_to_integer(Oc1)),
+		instrument_code(Program2,list_to_integer(Line2),Var2,list_to_integer(Oc2)),
+		
+		{ok, Fd} = file:open(?TMP_PATH++"cuter.txt", [write]),
+		Self = self(),
+		Ref = make_ref(),
+		spawn(fun() ->
+				group_leader(Fd,self()),
+				Self ! {cover_compilation(Program1),Ref}
+				end),
+		receive
+			{_,Ref} ->
+				file:close(Fd)
+		end,
+
 		ModTmp1 = list_to_atom(filename:basename(Program1,".erl")++"Tmp"),
 		ModTmp2 = list_to_atom(filename:basename(Program2,".erl")++"Tmp"),
 		lists:map(
-			fun(E) ->
-				catch apply(ModuleName1,FunName,E),
+			fun(I) ->
+				catch apply(ModuleName1,FunName,I),
 				Cvg = get_coverage(ModuleName1),
-				execute_input(ModTmp1,ModTmp2,FunName,E,Cvg)
+				{Clause,Dic} = identify_clause_input(ParamClauses,TypeDicts,I),
+				validate_input(ModuleName1,ModuleName2,FunName,I,Clause,Dic)
+				%execute_input(ModTmp1,ModTmp2,FunName,I)
 			end,
 			Inputs),
 		gen_random_inputs(ModuleName1,ModuleName2,FunName,ParamClauses,TypeDicts,0)
@@ -45,8 +56,7 @@ main(Program1,Start1,End1,Program2,Start2,End2,Function,Time) ->
 				unregister(tracer)
 		end
 	end.
-
-main(ProgramName,StartPos,EndPos,Function,Time) -> %(string(),string(),string(),string())
+main(ProgramName,Line,Var,Oc,Function,Time) ->
 	try 
 		register(cuterIn,spawn(secer_trace,init,[])),
 		register(tracer,spawn(secer_trace,init,[])),
@@ -60,14 +70,27 @@ main(ProgramName,StartPos,EndPos,Function,Time) -> %(string(),string(),string(),
 		Inputs = execute_cuter(ModuleName,FunName,ParamClauses,TypeDicts,TimeOut),
 
 		% PART 2
-		instrument_code(ProgramName,list_to_integer(StartPos),list_to_integer(EndPos)),
-		cover_compilation(ProgramName),
+		instrument_code(ProgramName,list_to_integer(Line),Var,list_to_integer(Oc)),
+		
+		{ok, Fd} = file:open(?TMP_PATH++"cuter.txt", [write]),
+		Self = self(),
+		Ref = make_ref(),
+		spawn(fun() ->
+				group_leader(Fd,self()),
+				Self ! {cover_compilation(ProgramName),Ref}
+				end),
+		receive
+			{_,Ref} ->
+				file:close(Fd)
+		end,
+
 		ModTmp = list_to_atom(filename:basename(ProgramName,".erl")++"Tmp"),
 		lists:map(
-			fun(E) ->
-				catch apply(ModuleName,FunName,E),
+			fun(I) ->
+				catch apply(ModuleName,FunName,I),
 				Cvg = get_coverage(ModuleName),
-				execute_input(ModTmp,FunName,E,Cvg)
+				identify_clause_input(ParamClauses,TypeDicts,I),
+				execute_input(ModTmp,FunName,I,Cvg)
 			end,
 			Inputs),
 		gen_random_inputs(ModuleName,empty,FunName,ParamClauses,TypeDicts,0)
@@ -95,15 +118,21 @@ analyze_types(FileName,FunName) ->
 			throw("Unexported function");
 		true ->
 			FuncTypes = typer_mod:get_type_inside_erl(["--show_exported", FileName]),
-			ExportedFunctionsTypes = lists:reverse(exported(Exports,FuncTypes,[])),
+			Exp = exported(Exports,FuncTypes,[]),
+			ExportedFunctionsTypes = lists:reverse(Exp),
 			FunctionSpec = get_executed_function(ExportedFunctionsTypes,FunName),
 			{_Origin,InputTypes} = get_inputs(FunctionSpec),
 			
 			ParamNames = get_parameters(Abstract,FunName),
+			% printer("ParamNames"),
+			% printer(ParamNames),
+			% printer("InputTypes"),
+			% printer(InputTypes),
 			DictOfDicts = generate_all_clause_dicts(ParamNames,InputTypes),
+			% printer("GeneralDict"),
+			% printer(DictOfDicts),
 			{ParamNames,DictOfDicts}
 	end.
-
 execute_cuter(ModuleName,FunName,ParamClauses,Dicts,TimeOut) ->
 	Params = lists:nth(rand:uniform(length(ParamClauses)),ParamClauses),
 	{ok,Dic} = dict:find(Params,Dicts),
@@ -112,13 +141,10 @@ execute_cuter(ModuleName,FunName,ParamClauses,Dicts,TimeOut) ->
 	CuterInputs = get_cuter_inputs(ModuleName,FunName,Input,TimeOut),
 
 	[Input|CuterInputs].
-
-instrument_code(Program1,Start1,End1) ->
+instrument_code(Program,Line,Var,Oc) ->
 	try
 		register(var_gen,spawn(secer_fv_server,init,[])),
-
-		Seleceted_var1 = secer_criterion_manager:get_temp_file(Program1,Start1,End1),
-		secer_criterion_manager:get_replaced_AST(Program1,Seleceted_var1),
+		secer_criterion_manager:get_replaced_AST(Program,Line,Var,Oc),
 		var_gen ! reset
 
 	catch 
@@ -127,56 +153,6 @@ instrument_code(Program1,Start1,End1) ->
 	after
 		unregister(var_gen)
 	end.
-
-% main0(FileName,FunName) ->
-% 	ModuleName = list_to_atom(filename:basename(FileName,".erl")),
-% 	compile:file(ModuleName,[debug_info]),
-% 	{ok,Abstract} = smerl:for_file(FileName),
-% 	Exports = smerl:get_exports(Abstract),
-% 	case is_exported(Exports,FunName) of
-% 		false -> 
-% 			printer("The selected function is not exported"),
-% 			throw("Unexported function");
-% 		true ->
-% 			FuncTypes = typer_mod:get_type_inside_erl(["--show_exported", FileName]),
-% 			ExportedFunctionsTypes = lists:reverse(exported(Exports,FuncTypes,[])),
-% 			FunctionSpec = get_executed_function(ExportedFunctionsTypes,FunName),
-% 			{_Origin,InputTypes} = get_inputs(FunctionSpec),
-% 			ParamNames = get_parameters(Abstract,FunName),
-
-% 			DictOfDicts = generate_all_clause_dicts(ParamNames,InputTypes),
-			
-% 			ParamList = lists:nth(rand:uniform(length(ParamNames)),ParamNames),
-% 			{ok,NewDic} = dict:find(ParamList,DictOfDicts),
-
-% 			Input = (catch generate_instance({NewDic,ParamList})),
-
-% 			CuterInputs = get_cuter_inputs(ModuleName,FunName,Input),
-
-% 			[Input|CuterInputs],
-
-% 			{FinalInputs,Coverage} = case CuterInputs of
-% 				cuterError ->
-% 					printer("CutEr error"),
-% 					cover_compilation(ModuleName),
-% 					gen_and_cover(?MAX_TESTS,DictOfDicts,ParamNames,ModuleName,FunName,0,{[Input],0});
-% 				_ ->
-% 					CuterIn = [Input|CuterInputs],
-% 					Cvg = measure_coverage_cuter(CuterIn,ModuleName,FunName),
-% 					gen_and_cover(?MAX_TESTS - length(CuterIn),DictOfDicts,ParamNames,ModuleName,FunName,0,{CuterIn,Cvg})
-% 			end
-% 	end.
-
-% TODO DELETE
-% case Cvg of
-% 	X when X < ?MIN_COV ->
-% 		%gen_and_cover(?MAX_TESTS - length(CuterIn),NewDic,ParamList,ModuleName,FunName,0,{CuterIn,Cvg});
-% 		gen_and_cover(?MAX_TESTS - length(CuterIn),DictOfDicts,ParamNames,ModuleName,FunName,0,{CuterIn,Cvg});
-% 	_ ->
-% 		cover:stop(),
-% 		{CuterIn,Cvg}
-% end
-
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%% PART 1: GET SPECS, GENERATE 1ST INPUT AND EXECUTE CUTER %%%%%%%%%%%%
@@ -199,7 +175,7 @@ exported([Export | Rest], FuncTypes, ExportedTypes) ->
 		[] -> 
 			exported(Rest,FuncTypes,ExportedTypes);
 		_ -> 
-			[FuncType] = List1,
+			[FuncType|_] = List1, %ONLY THE FIRST ONE
 			exported(Rest,FuncTypes,[FuncType | ExportedTypes])
 	end.
 
@@ -253,7 +229,7 @@ get_types([H|T],L) ->
 			end
 	end.
 
-type_intersection(Type1,Type2) -> %TODO PENDING
+type_intersection(Type1,Type2) ->
 	T1 = get_type(Type1),
 	T2 = get_type(Type2),
 	ResType = erl_types:t_inf(T1,T2),
@@ -471,6 +447,12 @@ generate_proper_type(Type) ->
 			proper_types:int();
 		{number,any,unknown} -> 	
 			proper_types:number();
+		{number,{int_rng,neg_inf,pos_inf},integer} ->
+			proper_types:integer(inf,inf);
+		{number,{int_rng,neg_inf,Max},integer} ->
+			proper_types:integer(inf,Max);
+		{number,{int_rng,Min,pos_inf},integer} ->
+			proper_types:integer(Min,inf);
 		{number,{int_rng,Min,Max},integer} ->
 			proper_types:integer(Min,Max);
 		{number,List,integer} -> 
@@ -521,16 +503,16 @@ is_variable(N) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 get_cuter_inputs(ModuleName,FunName,Input,TimeOut) ->
 	Self = self(),
-	c:flush(),
+	Ref = make_ref(),
 	{ok, Fd} = file:open(?TMP_PATH++"cuter.txt", [write]),
 	register(cuterProcess,spawn(
 		fun() ->
 			group_leader(Fd, self()),
 			catch cuter:run(ModuleName,FunName,Input,25,[{number_of_pollers,1},{number_of_solvers,1}]),
-			Self ! finish
+			Self ! {finish,Ref}
 		end)),
-	receive
-		finish ->
+	Result = receive
+		{finish,Ref} ->
 			cuterIn ! {get_results,Self},
 			cuterIn ! exit,
 			receive
@@ -538,10 +520,7 @@ get_cuter_inputs(ModuleName,FunName,Input,TimeOut) ->
 					[];
 				Inputs ->
 					Inputs
-			end;
-		X ->
-			printer(X),
-			throw({"Unexpected reception",X})
+			end
 	after TimeOut * 1000 -> 
 			timer:exit_after(0,cuterProcess,kill),
 			cuterIn ! {get_results,Self},
@@ -551,7 +530,9 @@ get_cuter_inputs(ModuleName,FunName,Input,TimeOut) ->
 				Inputs ->
 					Inputs
 			end
-	end.
+	end,
+	file:close(Fd),
+	Result.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%% PART 2: INSTRUMENT THE CODE AND RANDOM GENERATION WITH PROPER  %%%%%%%%%%%%
@@ -688,7 +669,7 @@ validate_input(Mod1,Mod2,Fun,Input,Params,Dic) ->
 		false ->
 			catch apply(Mod1,Fun,Input),
 			Cvg = get_coverage(Mod1),
-			{Trace1,Trace2} = execute_input(ModTmp1,ModTmp2,Fun,Input,Cvg),
+			{Trace1,_Trace2} = execute_input(ModTmp1,ModTmp2,Fun,Input,Cvg),
 			input_manager ! {existing_trace,Trace1,self()},
 			receive
 				true ->
@@ -702,7 +683,7 @@ gen_guided_input(Mod,Fun,Input,Params,Dic) ->
 	case length(Input) of
 		Size when Size < 2 ->
 			next;
-		Size ->
+		_Size ->
 			NewInputs = gen_new_inputs(Input,Params,Dic),
 			[validate_input(Mod,Fun,NewInput,Params,Dic)|| NewInput <- NewInputs]
 	end. 
@@ -710,7 +691,7 @@ gen_guided_input(Mod1,Mod2,Fun,Input,Params,Dic) ->
 	case length(Input) of
 		Size when Size < 2 ->
 			next;
-		Size ->
+		_Size ->
 			NewInputs = gen_new_inputs(Input,Params,Dic),
 			[validate_input(Mod1,Mod2,Fun,NewInput,Params,Dic)|| NewInput <- NewInputs]
 	end. 
@@ -746,39 +727,150 @@ increment_integer_types(Dic) ->
 		end, 
 		Dic).
 
-%%%%%%%%%%
-% UNUSED %
-%%%%%%%%%%
-% gen_and_cover(0,_,_,_,_,_,Res) -> 
-% 	cover:stop(),
-% 	Res;
-% gen_and_cover(N,DictOfDicts,ParamNames,Mod,FunName,NoInputTimes,{Inputs,_}) ->
-% 	Param = case length(ParamNames) of
-% 		1 ->
-% 			lists:nth(1,ParamNames);
-% 		Length ->
-% 			lists:nth(rand:uniform(Length),ParamNames)
-% 		end,
-% 	{ok,TypeDic} = dict:find(Param,DictOfDicts),
 
-% 	Input = generate_instance({TypeDic,Param}),
-% 	execute(Inputs,Mod,FunName),
-% 	Cvg = get_coverage(Mod),
-% 	case Cvg of
-% 		Cvg when Cvg > 0.9 -> %?MIN_COV
-% 			gen_and_cover(0,TypeDic,Param,Mod,FunName,0,{[Input|Inputs],Cvg});
-% 		_ ->
-% 			case {lists:member(Input,Inputs),NoInputTimes} of
-% 				{true,Times} when Times > 20 ->
-% 					NewTypeDic = increment_integer_types(TypeDic),
-% 					NewDictOfDicts = dict:store(Param,NewTypeDic,DictOfDicts),
-% 					gen_and_cover(N,NewDictOfDicts,ParamNames,Mod,FunName,0,{Inputs,Cvg});
-% 				{true,_} ->
-% 					gen_and_cover(N,DictOfDicts,ParamNames,Mod,FunName,NoInputTimes+1,{Inputs,Cvg});
-% 				{false,_} ->
-% 					gen_and_cover(N-1,DictOfDicts,ParamNames,Mod,FunName,0,{[Input|Inputs],Cvg})
-% 			end
-% 	end.
+%%% PENDING %%%
+identify_clause_input([Clause],Dicts,Input) ->
+	{ok,Dict} = dict:find(Clause,Dicts),
+	{Clause,Dict};
+identify_clause_input([Clause|Clauses],Dicts,Input) ->
+	{ok,Dict} = dict:find(Clause,Dicts),
+	%printer(Dict),
+	%io:get_line(""),
+	case is_input(Clause,Dict,Input) of
+		true ->
+			{ok,Dict} = dict:find(Clause,Dicts),
+			{Clause,Dict};
+		false ->
+			identify_clause_input(Clauses,Dicts,Input)
+	end.
+
+is_input([],_,[]) ->
+	true;
+is_input([Param|Params],Dict,[Arg|Args]) ->
+	case Param == Arg of
+		true ->
+			is_input(Params,Dict,Args);
+		false ->
+			{ok,Type} = dict:find(Param,Dict),
+			case is_valid_type(Param,Type,Dict,Arg) of
+				true ->
+					is_input(Params,Dict,Args);
+				false ->
+					false
+			end
+	end.
+
+is_valid_type(Param,Type,Dict,Arg) ->
+	case Type of
+		{number,any,integer} -> 	
+			is_integer(Arg);
+		{number,any,unknown} -> 	
+			is_number(Arg);
+		{number,{int_rng,neg_inf,pos_inf},integer} ->
+			is_integer(Arg);
+		{number,{int_rng,neg_inf,Max},integer} ->
+			is_integer(Arg) andalso Arg =< Max;
+		{number,{int_rng,Min,pos_inf},integer} ->
+			is_integer(Arg) andalso Arg >= Min;
+		{number,{int_rng,Min,Max},integer} ->
+			is_integer(Arg) andalso Arg =< Max andalso Arg >= Min;
+		{number,List,integer} ->
+			is_integer(Arg) andalso lists:member(Arg,List);
+		{atom,any,unknown} ->
+			is_atom(Arg);
+		{atom,List,unknown} ->
+			is_atom(Arg) andalso lists:member(Arg,List);
+		{list,_,_} -> 	
+			is_list(Arg);
+		list ->
+			case is_list(Arg) of
+				true ->
+					possible_list(Param,Dict,Arg);
+				false ->
+					false
+			end;
+		{nil,[],unknown} ->	
+			Arg == [];	
+		{tuple,TypeList,{Lenght,_}} -> 	
+			case is_tuple(Arg) of
+				true ->
+					case tuple_size(Arg) of
+						Lenght ->
+							possible_tuple(TypeList,tuple_to_list(Arg));
+						_ ->
+							false
+					end;
+				false ->
+					false
+			end;
+		tuple ->
+			case is_tuple(Arg) of
+				true ->
+					Length = tuple_size(Param),
+					case tuple_size(Arg) of
+						Lenght ->
+							possible_tuple_param_based(tuple_to_list(Param),Dict,tuple_to_list(Arg));
+						_ ->
+							false
+					end;
+				false ->
+					false
+			end;
+		{union,List,unknown} -> 
+			ValidTypes = [ is_valid_type(null,PossibleType,null,Arg) || PossibleType <- List],
+			lists:any(fun(X) -> X end, ValidTypes);
+		any -> 
+			true;
+		_ -> 
+			throw("Non contempled type")
+	end.
+
+possible_list({H,T},Dict,[ArgH|ArgT]) when is_tuple(T) == false ->
+	{ok,Type} = dict:find(H,Dict),
+	case is_valid_type(H,Type,Dict,ArgH) of
+		true ->
+			case ArgT of
+				[] ->
+					T == nil;
+				_ when is_list(ArgT) == false ->
+					{ok,Type2} = dict:find(T,Dict),
+					is_valid_type(T,Type2,Dict,ArgT);
+				_ ->
+					false
+			end;
+		false ->
+			false
+	end;
+possible_list({H,T},Dict,[ArgH|ArgT]) ->
+	{ok,Type} = dict:find(H,Dict),
+
+	case is_valid_type(H,Type,Dict,ArgH) of
+		true ->
+			possible_list(T,Dict,ArgT);
+		false ->
+			false
+	end.
+
+possible_tuple([],[]) ->
+	true;
+possible_tuple([H|T],[Arg|Args]) ->
+	case is_valid_type(null,H,null,Arg) of
+		true ->
+			possible_tuple(T,Args);
+		false ->
+			false
+	end.
+
+possible_tuple_param_based([],_,[]) -> 
+	true;
+possible_tuple_param_based([Param|Params],Dict,[Arg|Args]) ->
+	{ok,Type} = dict:find(Param,Dict),
+	case is_valid_type(Param,Type,Dict,Arg) of
+		true ->
+			possible_tuple_param_based(Params,Dict,Args);
+		false ->
+			false
+	end.
 
 %%%%%%%%%%%%
 %%% MISC %%%

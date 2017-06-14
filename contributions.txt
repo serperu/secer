@@ -1,4 +1,3 @@
-
 *****************
 Typer -> Proper
 *****************
@@ -11,12 +10,14 @@ Typer -> Proper
 - Calcular tipo por clausulas utilizando typer Tama % PENDING
 
 *************************************************
-Cuando Cuter no llega al % de cobertura esperado
+	Cuter & Random
 *************************************************
+Phase 1: Cuter
+
 - Se generan mas tests con Proper hasta: 
-1.- Alcanzar la cobertura deseada
-2.- Alcanzar el numero maximo de tests esperados
-3.- Alcanzar el timeout %PENDING
+1.- Alcanzar la cobertura deseada %NO
+2.- Alcanzar el numero maximo de tests esperados %NO
+3.- Alcanzar el timeout 
 
 - Para integers, cuando proper no genera un test nuevo despues de 50 intentos se incrementa 
 el rango de valores validos (al no poner rango explicito proper genera enteros entre -20 y 20 aproximadamente)
@@ -36,4 +37,13 @@ TODO
 Utilizar dicts en un servidor cuyo estado son 2 diccionarios (inputs y trazas).
 Cuando se calcule una mutacion con traza nueva se enviara un mensaje a si mismo con dicha mutacion y el atomo pending para procesarla. Si llega un mensaje de stop se abortara el procesamiento de los pendings restantes recibidos despues.
 
++ Reprintear el AST al principio para que la organización del mismo sea adecuada al medir la cobertura con COVER. % PENDING
 
++ Las trazas no vacias obtenidas por cuter se deben utilizar para generar nuevos inputs, no desecharlas % PENDING
++ Detectar de que clausula es el input generado por cuter
++ Obtener las trazas de 2 programas en paralelo y matar la ejecución al hallar una divergencia % PENDING
++ Cambiar lo del offset por linea, variable y ocurrencia. Utilizar el AST para cambiar ese nodo por slicing_criterion y usar 
+el nuevo AST para instrumentar directamente % DONE*
+
++ typer_mod.erl es una fuente de error, por las distintas versiones de typer. Hay que notificar el error en la herramienta
+con algun mensaje y dar una direccion github para descargar la version alternativa

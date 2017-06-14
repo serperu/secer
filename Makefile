@@ -7,27 +7,18 @@ compile:
 	@mkdir ebin
 	@erlc -W0 -o ebin src/*.erl 
 #	@cd proper; make
-#	@cd cuter; make
+#	@cd cuter; autoconfig; ./configure; make depend; make
 
 clean:
 	@rm -Rf ebin
-#	@rm -f *.txt
 
-# run_paper:
-# 	erl -pa ebin csp_tracker/ebin -run csp_reversible run examples/ex_paper.csp -noshell -s erlang halt
-# erl -pa ebin cuter/ebin proper/ebin -run secer run b1.erl 1021 1022 b1_slice.erl 712 713 numbers 15 -noshell -s erlang halt
 run1:
-	erl -pa ebin cuter/ebin proper/ebin -run secer run b1.erl 1021 1022 numbers 15 -noshell -s erlang halt
+	@erl -pa ebin cuter/ebin proper/ebin -run secer run b1.erl 22 C 1 b1_slice.erl 18 C 1 numbers 15 -noshell -s erlang halt
 
 run2:
-	erl -pa ebin cuter/ebin proper/ebin -run secer run b1_slice.erl 712 713 numbers 15 -noshell -s erlang halt
+	@erl -pa ebin cuter/ebin proper/ebin -run secer run string0.erl 5948 5951 string1.erl 6138 6141 tokens 15 -noshell -s erlang halt
 
 run3:
-	erl -pa ebin cuter/ebin proper/ebin -run secer run b1.erl 1025 1026 b1_slice.erl 712 713 numbers 15 -noshell -s erlang halt
-
-
-# update_sm:
-# 	@cd csp_tracker; git checkout master && git pull
-# 	@git add csp_tracker
-# 	@git commit -m "updating csp_tracker to latest"
-# 	@git push
+	@erl -pa ebin cuter/ebin proper/ebin -run secer run happy0.erl 425 430 happy1.erl 222 227 main 15 -noshell -s erlang halt
+#	@erl -pa ebin cuter/ebin proper/ebin -run secer run b1.erl 1022 1023 numbers 15 -noshell -s erlang halt
+	
