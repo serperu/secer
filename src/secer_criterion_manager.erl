@@ -1,45 +1,13 @@
 -module(secer_criterion_manager).
--export([get_replaced_AST/4,get_temp_AST/4]).
+-export([get_replaced_AST/4]).
 -define(TMP_PATH,"./tmp/").
-
-get_temp_AST(FileI,Line,Var,Occurrence) ->
-	AtomVar = list_to_atom(Var),
-	{ok,AST_code} = epp:parse_file(FileI,[],[]),
-	{Replaced_AST,Replaced} = 
-		lists:mapfoldl(fun(Elem,Found) -> 
-			{New_AST,{_,Located}} = erl_syntax_lib:mapfold(
-					fun(N,{Acc,F}) ->
-						case N of
-							{var,Line,AtomVar} when Acc == Occurrence ->
-								{erl_syntax:atom(slicing_criterion),{Acc+1,true}};
-							{var,Line,AtomVar} ->
-								{N,{Acc+1,F}};
-							_ ->
-								{N,{Acc,F}}
-						end
-					end,
-					{1,Found},
-					Elem),
-					{New_AST,Located}
-				end,
-				false,
-				AST_code),
-	case Replaced of
-		true ->
-			Replaced_AST;
-		false ->
-			io:format("No variable ~s occurrence ~p found in ~s line ~p\n",[Var,Occurrence,FileI,Line]),
-			printer(whereis(secer)),
-			secer ! die
-			%exit(0)
-	end,
-	Replaced_AST.
 
 get_replaced_AST(FileI,Line,Var,Occurrence) -> 
 	ModuleName = filename:basename(FileI,".erl"),
-	%{ok,AST_code} = epp:parse_file(?TMP_PATH++ModuleName++"Tmp.erl",[],[]),
-	AST_code = get_temp_AST(FileI,Line,Var,Occurrence),
-	Final_AST = instrument_AST(AST_code,Var),
+	{ok,AST_code} = epp:parse_file(FileI,[],[]),
+	%AST_code = get_temp_AST(FileI,Line,Var,Occurrence),
+	AtomVar = list_to_atom(Var),
+	Final_AST = instrument_AST(AST_code,FileI,Line,AtomVar,Occurrence),
 	{ok,Final_file} = file:open(?TMP_PATH++ModuleName++"Tmp.erl",[write]),
 	generate_final_code(Final_AST,Final_file),
 	compile:file(?TMP_PATH++ModuleName++"Tmp.erl",[{outdir,?TMP_PATH}]),
@@ -71,59 +39,73 @@ revert_code(Form,File) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% INSTRUMENTATION %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-instrument_AST(AST,Sc_name) ->
-	{New_AST,_} = lists:mapfoldl(fun map_instrument_AST/2,Sc_name,AST),
+% instrument_AST(AST,Sc_name) ->
+% 	{New_AST,_} = lists:mapfoldl(fun map_instrument_AST/2,Sc_name,AST),
+% 	New_AST.
+
+instrument_AST(AST,File,Line,Sc_name,Oc) ->
+	{New_AST,{_,_,_,Found}} = lists:mapfoldl(fun map_instrument_AST/2,{Line,Sc_name,Oc,false},AST),
+	case Found of
+		true ->
+			ok;
+		false ->
+			io:format("No variable ~s occurrence ~p found in ~s line ~p\n",[Sc_name,Oc,File,Line]),
+			secer ! die,
+			exit(0)
+	end,
 	New_AST.
 
-map_instrument_AST(Node,Sc_name) ->
+map_instrument_AST(Node,{Line,Sc_name,Oc,Found}) ->
 	case erl_syntax:type(Node) of
 		function ->
-			SC_path = get_path(Node),
+			SC_path = get_path(Node,Line,Sc_name,Oc),
 			case SC_path of 
 				unfound -> 
-					{Node,Sc_name};
+					{Node,{Line,Sc_name,Oc,Found}};
 				_ -> 
-					New_node = revert_sc(Node,lists:reverse(SC_path),Sc_name),
-					Ann_node = erl_syntax_lib:annotate_bindings(New_node,ordsets:new()),
-					Var_list = sets:to_list(erl_syntax_lib:variables(New_node)),
+					Ann_node = erl_syntax_lib:annotate_bindings(Node,ordsets:new()),
+					Var_list = sets:to_list(erl_syntax_lib:variables(Node)),
 					add_vars_to_var_gen(Var_list),
-					{instrument(Ann_node,SC_path),Sc_name}
+					{instrument(Ann_node,SC_path),{Line,Sc_name,Oc,true}}
 			end;
 		_ -> 
-			{Node,Sc_name}
+			{Node,{Line,Sc_name,Oc,Found}}
 	end.
 
 %%%%%%%%%%%%%%%%
 %%% GET PATH %%%
 %%%%%%%%%%%%%%%%
-get_path(Root) ->
+get_path(Root,Line,Sc_name,Oc) ->
 	try 
-		list_of_lists(erl_syntax:subtrees(Root),[]),
+		list_of_lists(erl_syntax:subtrees(Root),Line,Sc_name,Oc,1,[]),
 		unfound
 	catch
 		Path -> Path
 	end.
-list_of_lists(L,Path) ->
+list_of_lists(L,Line,Sc_name,Oc,CurrentOc,Path) ->
 	lists:foldl(
-		fun(E, NAcc) ->
-			list(E,NAcc,1,Path),
-			NAcc + 1
+		fun(E, {Li,Sc,O,NAcc,CurOc}) ->
+			{_,_,_,_,NewCurrentOc} = list(E,{Li,Sc,O,NAcc,CurOc},1,Path),
+			{Li,Sc,O,NAcc + 1,NewCurrentOc}
 		end,
-		1,
+		{Line,Sc_name,Oc,1,CurrentOc},
 		L).
-list(L,N,_,Path) ->
+list(L,{Line,Sc_name,Oc,N,CurrentOc},_,Path) ->
 	lists:foldl(
-		fun(E, MAcc) ->
+		fun(E, {Li,Sc,O,MAcc,CurOc}) ->
 			New_path = [{erl_syntax:type(E),N,MAcc}|Path],
-			case erl_syntax:is_atom(E,slicing_criterion) of
-				true -> 
+			case E of
+				{var,Li,Sc} when O == CurOc -> 
 					throw(New_path);
-				false ->
-					list_of_lists(erl_syntax:subtrees(E),New_path),
-					MAcc+1
+				{var,Li,Sc} ->
+					{_,_,_,_,NewCurrentOc} = list_of_lists(erl_syntax:subtrees(E),Li,Sc,O,CurOc,New_path),
+					{Li,Sc,O,MAcc+1,NewCurrentOc+1};
+				_ ->
+					{_,_,_,_,NewCurrentOc} =list_of_lists(erl_syntax:subtrees(E),Li,Sc,O,CurOc,New_path),
+					{Li,Sc,O,MAcc+1,NewCurrentOc}
 			end
 		end,
-		1,
+		{Line,Sc_name,Oc,1,CurrentOc},
 		L).
 
 revert_sc(Node,[{_Type,N,M}|T],Sc_name) ->
@@ -239,11 +221,11 @@ replace_match_pattern(Node,[{Type,N,M}|T]) ->
 	Children = erl_syntax:subtrees(Node),
 	Child = lists:nth(N,Children),
 
-	[New_pattern] = replace_pattern_with_free_variables(Child,[{Type,N,M}|T]),
+	{[New_pattern],Var_sc_fv} = replace_pattern_with_free_variables(Child,[{Type,N,M}|T],dict:new()),
 
 	Expr_pm = erl_syntax:match_expr(New_pattern,erl_syntax:match_expr_body(Node)),
 	
-	Var_sc_fv = erlang:get(slicing_criterion),
+	%Var_sc_fv = erlang:get(slicing_criterion),
 	Node_sc = obtain_sc(Node,[{Type,N,M}|T]),
 
 	Ann = erl_syntax:get_ann(Node),
@@ -253,14 +235,9 @@ replace_match_pattern(Node,[{Type,N,M}|T]) ->
 
 	Expr_block = case lists:member(Sc_name,Bounded_vars) of
 		true ->	
-			Expr_send_fv = erl_syntax:infix_expr(erl_syntax:atom("tracer"),erl_syntax:operator("!"),
-								erl_syntax:tuple([erl_syntax:atom(add),Var_sc_fv])),
 			Expr_send_sc = erl_syntax:infix_expr(erl_syntax:atom("tracer"),erl_syntax:operator("!"),
 								erl_syntax:tuple([erl_syntax:atom(add),Node_sc])),
-			Case_clause_equal = erl_syntax:clause([Node_sc],[],[Expr_send_fv]),
-			Case_clause_else = erl_syntax:clause([erl_syntax:underscore()],[],[Expr_send_sc]),
-			Expr_tracer_case = erl_syntax:case_expr(Var_sc_fv,[Case_clause_equal,Case_clause_else]),
-			erl_syntax:block_expr([Expr_pm,Expr_tracer_case,New_pattern]);
+			erl_syntax:block_expr([Expr_pm,Expr_send_sc,New_pattern]);
 		false ->
 			Expr_send_fv = erl_syntax:infix_expr(erl_syntax:atom("tracer"),erl_syntax:operator("!"),
 								erl_syntax:tuple([erl_syntax:atom(add),Var_sc_fv])),
@@ -421,10 +398,10 @@ replace_clause(Node,[{Type,N,M}|T],Clauses,Root_type) ->
 	Child = lists:nth(N,Children),
 
 	%REPLACE PATTERN
-	New_pattern = replace_pattern_with_free_variables(Child,[{Type,N,M}|T]),
+	{New_pattern,Var_sc_fv} = replace_pattern_with_free_variables(Child,[{Type,N,M}|T],dict:new()),
 
 	%CREATE BODY
-	Var_sc_fv = erlang:get(slicing_criterion),
+	%Var_sc_fv = erlang:get(slicing_criterion),
 	Node_sc = obtain_sc(Node,[{Type,N,M}|T]),
 
 	Ann = erl_syntax:get_ann(Node),
@@ -535,27 +512,28 @@ replace_expression(Node,[{_,N,M}|T]) ->
 %%%%%%%%%%
 % COMMON %
 %%%%%%%%%%
-replace_pattern_with_free_variables(Pattern,[{_,_,M}]) -> % DEVUELVE EN FORMATO [Pattern1,Pattern2...]
-	Modified_pattern = replace_after_position(Pattern,M),
-	replacenth(M,gen_and_put_scFreeVar(),Modified_pattern);
-replace_pattern_with_free_variables(Pattern,[{_Type1,_N1,M1},{_Type,N,M2}|T]) ->
-	New_pattern = replace_after_position(Pattern,M1),
+replace_pattern_with_free_variables(Pattern,[{_,_,M}],VarDic) -> % DEVUELVE EN FORMATO [Pattern1,Pattern2...]
+	{Modified_pattern,_} = replace_after_position(Pattern,M,VarDic),
+	Sc_fv = gen_and_put_scFreeVar(),
+	{replacenth(M,Sc_fv,Modified_pattern),Sc_fv};
+replace_pattern_with_free_variables(Pattern,[{_Type1,_N1,M1},{_Type,N,M2}|T],VarDic) ->
+	{New_pattern,NewDic} = replace_after_position(Pattern,M1,VarDic),
 	
 	Sc_elem = lists:nth(M1,New_pattern),
 	Children = erl_syntax:subtrees(Sc_elem),
 	Child = lists:nth(N,Children),
 
-	New_child = replace_pattern_with_free_variables(Child,[{_Type,N,M2}|T]),
+	{New_child,Sc_fv} = replace_pattern_with_free_variables(Child,[{_Type,N,M2}|T],NewDic),
 	
 	Final_children = replacenth(N,New_child,Children),
-	replacenth(M1,erl_syntax:make_tree(erl_syntax:type(Sc_elem),Final_children),New_pattern).
+	{replacenth(M1,erl_syntax:make_tree(erl_syntax:type(Sc_elem),Final_children),New_pattern),Sc_fv}.
 
 gen_and_put_scFreeVar() ->
 	var_gen ! {get_free_variable,self()},
 	New_var = receive
 				FV -> FV
 			  end,
-	erlang:put(slicing_criterion,New_var),
+	%erlang:put(slicing_criterion,New_var),
 	New_var.
 
 obtain_sc(Node,[]) -> 
@@ -626,41 +604,57 @@ replacenth(ReplaceIndex,Value,[V|List],Acc,Index) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% REPLACE AFTER THE NTH ELEMENT %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-replace_after_position(List,Index) ->
-	Dic = dict:new(),
-	replace_after_position(List,Index,[],1,Dic).
+replace_after_position(List,Index,VarDic) ->
+	replace_after_position(List,Index,[],1,VarDic).
 
-replace_after_position([],_,New_list,_,_) ->
-	lists:reverse(New_list);
+replace_after_position([],_,New_list,_,VarDic) ->
+	{lists:reverse(New_list),VarDic};
 replace_after_position([H|T],Index,New_list,Pos,Dic) ->
 	case Pos > Index of
 		true ->
 			replace_after_position(T,Index,[gen_free_var()|New_list],Pos+1,Dic); %REPLACE WITH THE FREE VAR GENERATOR CALL
 		false ->
-			case erl_syntax:type(H) of 
-				variable ->  
-						Ann = erl_syntax:get_ann(H),
-						[{env,Bounded_vars},_,_] = Ann,
-
-						case lists:member(erl_syntax:variable_name(H),Bounded_vars) of
-							true ->
-								replace_after_position(T,Index,[H|New_list],Pos+1,Dic);
-							false ->
-								{Free_var,Dic2} = gen_free_var_before_sc(H,Dic),
-								replace_after_position(T,Index,[Free_var|New_list],Pos+1,Dic2)
-						end;
-				class_qualifier ->
-					New_H = erl_syntax_lib:map(fun(Node) ->
-											case {erl_syntax:type(Node),erl_syntax:is_leaf(Node)} of
-												{Type,true} when Type == variable -> gen_free_var();
-												_ -> Node
+			{NewH,NewDic} = erl_syntax_lib:mapfold(
+				fun(Node,Dict) ->
+					case erl_syntax:type(Node) of
+						variable ->
+							Ann = erl_syntax:get_ann(H),
+							Bounded_vars = case Ann of
+								[{env,Bounded},_,_] ->
+									Bounded;
+								[] ->
+									[]
+							end,
+							VarName = erl_syntax:variable_name(Node),
+							case lists:member(VarName,Bounded_vars) of
+								true ->
+									{Node,Dict};
+								false ->
+									Bool = dict:fold(
+										fun(K,V,Acc) ->
+											case Node of
+												V ->
+													true;
+												_ ->
+													false or Acc
 											end
 										end,
-										H),
-					replace_after_position(T,Index,[New_H|New_list],Pos+1,Dic);
-				_ ->
-					replace_after_position(T,Index,[H|New_list],Pos+1,Dic)
-			end
+										false,
+										Dict),
+									case Bool of
+										true ->
+											{Node,Dict};
+										false ->
+											gen_free_var_before_sc(Node,Dict)
+									end
+							end;
+						_ ->
+							{Node,Dict}
+					end
+				end,
+				Dic,
+				H),
+			replace_after_position(T,Index,[NewH|New_list],Pos+1,NewDic)
 	end.
 
 gen_free_var() ->
