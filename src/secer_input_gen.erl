@@ -10,10 +10,10 @@ main(Program1,Line1,Var1,Oc1,Program2,Line2,Var2,Oc2,Function,Time) ->
 
 		ModuleName1 = list_to_atom(filename:basename(Program1,".erl")),
 		ModuleName2 = list_to_atom(filename:basename(Program2,".erl")),
-		FunName = list_to_atom(Function),
+		{FunName,Arity} = divide_function(Function),
 
 		% PART 1
-		{ParamClauses,TypeDicts} = analyze_types(Program1,FunName),
+		{ParamClauses,TypeDicts} = analyze_types(Program1,FunName,Arity),
 		TimeOut = Time div 3 * 2,
 		Inputs = execute_cuter(ModuleName1,FunName,ParamClauses,TypeDicts,TimeOut),
 		% PART 2
@@ -62,10 +62,10 @@ main(ProgramName,Line,Var,Oc,Function,Time) ->
 		register(tracer,spawn(secer_trace,init,[])),
 
 		ModuleName = list_to_atom(filename:basename(ProgramName,".erl")),
-		FunName = list_to_atom(Function),
+		{FunName,Arity} = divide_function(Function),
 
 		% PART 1
-		{ParamClauses,TypeDicts} = analyze_types(ProgramName,FunName),
+		{ParamClauses,TypeDicts} = analyze_types(ProgramName,FunName,Arity),
 		TimeOut = Time div 3 * 2,
 		Inputs = execute_cuter(ModuleName,FunName,ParamClauses,TypeDicts,TimeOut),
 
@@ -107,20 +107,21 @@ main(ProgramName,Line,Var,Oc,Function,Time) ->
 		end
 	end.
 
-analyze_types(FileName,FunName) ->
+analyze_types(FileName,FunName,Arity) ->
 	ModuleName = list_to_atom(filename:basename(FileName,".erl")),
 	compile:file(ModuleName,[debug_info]),
 	{ok,Abstract} = smerl:for_file(FileName),
 	Exports = smerl:get_exports(Abstract),
-	case is_exported(Exports,FunName) of
+	case is_exported(Exports,FunName,Arity) of
 		false -> 
 			printer("The selected function is not exported"),
-			throw("Unexported function");
+			secer ! die;
+			%throw("Unexported function");
 		true ->
 			FuncTypes = typer_mod:get_type_inside_erl(["--show_exported", FileName]),
 			Exp = exported(Exports,FuncTypes,[]),
 			ExportedFunctionsTypes = lists:reverse(Exp),
-			FunctionSpec = get_executed_function(ExportedFunctionsTypes,FunName),
+			FunctionSpec = get_executed_function(ExportedFunctionsTypes,FunName,Arity),
 			{_Origin,InputTypes} = get_inputs(FunctionSpec),
 			
 			ParamNames = get_parameters(Abstract,FunName),
@@ -161,10 +162,15 @@ instrument_code(Program,Line,Var,Oc) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % VERIFY IF THE CALLED FUNCTION IS EXPORTED AND GET SPEC %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-is_exported([],_) -> false;
-is_exported([{Name,_}|_],Name) -> true;
-is_exported([{_,_}|Rest],Name) ->
-	is_exported(Rest,Name).
+divide_function(FunArity) ->
+	Tokens = string:tokens(FunArity,"/"),
+	[Name,Arity] = Tokens,
+	{list_to_atom(Name),list_to_integer(Arity)}.
+
+is_exported([],_,_) -> false;
+is_exported([{Name,Arity}|_],Name,Arity) -> true;
+is_exported([{_,_}|Rest],Name,Arity) ->
+	is_exported(Rest,Name,Arity).
 
 exported([],_,ExportedTypes) -> 
 	ExportedTypes;
@@ -179,12 +185,12 @@ exported([Export | Rest], FuncTypes, ExportedTypes) ->
 			exported(Rest,FuncTypes,[FuncType | ExportedTypes])
 	end.
 
-get_executed_function([],_) -> 
+get_executed_function([],_,_) -> 
 	unexporter;
-get_executed_function([{FunName,Arity,Structure,StringSpec}|_],FunName) ->
+get_executed_function([{FunName,Arity,Structure,StringSpec}|_],FunName,Arity) ->
 	{FunName,Arity,Structure,StringSpec};
-get_executed_function([_|Functions],FunName) ->
-	get_executed_function(Functions,FunName).
+get_executed_function([_|Functions],FunName,Arity) ->
+	get_executed_function(Functions,FunName,Arity).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % GET THE TYPES OF THE INPUTS FROM THE SPEC %

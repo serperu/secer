@@ -1,0 +1,211 @@
+#!/usr/bin/env escript
+%% -*- erlang -*-
+%%! -pa ebin cuter/ebin proper/ebin
+
+main([X]) when X == "-h" orelse X == "--help" ->
+	io:format("~s\n",[help_message()]);
+
+main([
+		"-f", File1, 
+		"-li", Line1, 
+		"-var", Var1,
+		"-oc", Oc1,
+		"-f", File2,
+		"-li", Line2,
+		"-var", Var2,
+		"-oc", Oc2,
+		"-fun", Fun,
+		"-to", Time
+	]) -> 
+
+        InputFuns = string:tokens(Fun,",[]"),
+		Res = try  
+			list_to_integer(Line1), 
+			list_to_integer(Line2),
+			list_to_integer(Oc1),
+			list_to_integer(Oc2),
+			list_to_integer(Time)
+		catch 
+			_:_ -> 
+				{-1, -1}
+		end,
+		case Res of 
+			{-1, -1} -> 
+				usage(1);
+			_ -> 
+				[secer:run([File1,Line1,Var1,Oc1,File2,Line2,Var2,Oc2,IFun,Time])|| IFun<- InputFuns]
+		end;
+main([
+		"-f", File1, 
+		"-li", Line1, 
+		"-var", Var1,
+		"-f", File2,
+		"-li", Line2,
+		"-var", Var2,
+		"-fun", Fun,
+		"-to", Time
+	]) -> 
+
+        InputFuns = string:tokens(Fun,",[]"),
+		Res = try  
+			list_to_integer(Line1), 
+			list_to_integer(Line2),
+			list_to_integer(Time)
+		catch 
+			_:_ -> 
+				{-1, -1}
+		end,
+		case Res of 
+			{-1, -1} -> 
+				usage(1);
+			_ -> 
+				[secer:run([File1,Line1,Var1,"1",File2,Line2,Var2,"1",IFun,Time])|| IFun<- InputFuns]
+		end;
+main([
+		"-f", File1, 
+		"-li", Line1, 
+		"-var", Var1,
+		"-f", File2,
+		"-li", Line2,
+		"-var", Var2,
+		"-oc", Oc2,
+		"-fun", Fun,
+		"-to", Time
+	]) -> 
+
+        InputFuns = string:tokens(Fun,",[]"),
+		Res = try  
+			list_to_integer(Line1), 
+			list_to_integer(Line2),
+			list_to_integer(Oc2),
+			list_to_integer(Time)
+		catch 
+			_:_ -> 
+				{-1, -1}
+		end,
+		case Res of 
+			{-1, -1} -> 
+				usage(1);
+			_ -> 
+				[secer:run([File1,Line1,Var1,"1",File2,Line2,Var2,Oc2,IFun,Time])|| IFun<- InputFuns]
+		end;
+main([
+		"-f", File1, 
+		"-li", Line1, 
+		"-var", Var1,
+		"-oc", Oc1,
+		"-f", File2,
+		"-li", Line2,
+		"-var", Var2,
+		"-fun", Fun,
+		"-to", Time
+	]) -> 
+
+        InputFuns = string:tokens(Fun,",[]"),
+		Res = try  
+			list_to_integer(Line1), 
+			list_to_integer(Line2),
+			list_to_integer(Oc1),
+			list_to_integer(Time)
+		catch 
+			_:_ -> 
+				{-1, -1}
+		end,
+		case Res of 
+			{-1, -1} -> 
+				usage(1);
+			_ -> 
+				[secer:run([File1,Line1,Var1,Oc1,File2,Line2,Var2,"1",IFun,Time])|| IFun<- InputFuns]
+		end;
+main([
+		"-f", File, 
+		"-li", Line, 
+		"-var", Var,
+		"-oc", Oc,
+		"-fun", Fun,
+		"-to", Time
+	]) -> 
+
+        InputFuns = string:tokens(Fun,",[]"),
+		Res = try  
+			list_to_integer(Line), 
+			list_to_integer(Oc),
+			list_to_integer(Time)
+		catch 
+			_:_ -> 
+				{-1, -1}
+		end,
+		case Res of 
+			{-1, -1} -> 
+				usage(2);
+			_ -> 
+				[secer:run([File,Line,Var,Oc,IFun,Time])|| IFun<- InputFuns]
+		end;
+main([
+		"-f", File, 
+		"-li", Line, 
+		"-var", Var,
+		"-fun", Fun,
+		"-to", Time
+	]) -> 
+
+        InputFuns = string:tokens(Fun,",[]"),
+		Res = try  
+			list_to_integer(Line), 
+			list_to_integer(Time)
+		catch 
+			_:_ -> 
+				{-1, -1}
+		end,
+		case Res of 
+			{-1, -1} -> 
+				usage(2);
+			_ -> 
+				[secer:run([File,Line,Var,"1",IFun,Time])|| IFun<- InputFuns]
+		end;
+main(_) ->
+    usage(1).
+
+usage(1) ->
+    io:format("Error in command\nUsage: secer -f file1.erl -li line1 -var variable1 [-oc occurrence1] 
+            [-f file2.erl -li line2 -var variable2 [-oc occurrence2]]          
+             -fun input_function -to timeout\n"),
+    halt(1);
+usage(2) ->
+	io:format("Usage: secer -f file.erl -li line -var variable [-oc occurrence] -fun input_function -to timeout\n"),
+	halt(1).
+
+help_message() ->
+	"
+  Usage: secer [--help] -f file -li line -var variable [-oc occurrence] 
+                       [-f file -li line -var variable [-oc occurrence]]
+                        -fun input_function* -to timeout
+
+  Options:
+    -f file.erl
+            indicate the selected file.erl where 
+            secer must be executed
+    -li line_number
+            indicate the line in the specified file 
+            where the interest point is located
+    -var var_name
+            indicate the name of the variable defined 
+            as interest point
+    -oc occurrence_number
+            indicate the occurrence number of the 
+            selected variable in the specified line
+            (1 by default).
+    -fun fun_name/arity*
+            indicate a list of the exported function/arity 
+            that are being called to test the value of the 
+            interest point. Each function/arity expend
+            the stablished timeout to calculate its own 
+            set of tests
+    -to timeout
+            indicate the time that the user want to 
+            wait for the execution of secer in seconds
+    --help (or -h)
+            Prints this message and exits
+
+    Note:
+        * denotes that multiple occurrences of these options are possible.".

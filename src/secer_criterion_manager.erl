@@ -39,10 +39,6 @@ revert_code(Form,File) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% INSTRUMENTATION %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% instrument_AST(AST,Sc_name) ->
-% 	{New_AST,_} = lists:mapfoldl(fun map_instrument_AST/2,Sc_name,AST),
-% 	New_AST.
-
 instrument_AST(AST,File,Line,Sc_name,Oc) ->
 	{New_AST,{_,_,_,Found}} = lists:mapfoldl(fun map_instrument_AST/2,{Line,Sc_name,Oc,false},AST),
 	case Found of
@@ -609,7 +605,7 @@ replace_after_position(List,Index,VarDic) ->
 
 replace_after_position([],_,New_list,_,VarDic) ->
 	{lists:reverse(New_list),VarDic};
-replace_after_position([H|T],Index,New_list,Pos,Dic) ->
+replace_after_position([H|T],Index,New_list,Pos,Dic) -> %REVISAR QUE HACER CUANDO POS = INDEX, NO CAMBIAR YA QUE SE TRATA A POSTERIORI
 	case Pos > Index of
 		true ->
 			replace_after_position(T,Index,[gen_free_var()|New_list],Pos+1,Dic); %REPLACE WITH THE FREE VAR GENERATOR CALL

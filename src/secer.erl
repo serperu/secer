@@ -7,6 +7,8 @@ run([File1,Line1,Var1,Oc1,File2,Line2,Var2,Oc2,Fun,Time]) ->
 		register(input_gen,spawn(secer_input_gen,main,[File1,Line1,Var1,Oc1,File2,Line2,Var2,Oc2,Fun,TimeOut])),
 		register(input_manager,spawn(secer_im_server,init,[])),
 
+		{FunName,Arity} = get_function_name(Fun),
+
 		receive
 			die -> 
 				exit(0)
@@ -17,44 +19,73 @@ run([File1,Line1,Var1,Oc1,File2,Line2,Var2,Oc2,Fun,Time]) ->
 		input_manager ! {get_results,self()},
 		receive
 			{Empty,Valued,Same,Different,Cvg} -> 
-				printer("Empty inputs"),
-				printer(dict:size(Empty)),
-				printer("Valued inputs"),
-				printer(dict:size(Valued)),
+				% printer("Empty Trace"),
+				% printer(dict:size(Empty)),
+				% printer("Valued Trace"),
+				% printer(dict:size(Valued)),
+				% printer("Same Trace"),
+				% printer(dict:size(Same)),
+				% printer("Different Trace"),
+				% printer(dict:size(Different)),
+
+				case dict:size(Different) of
+					0 ->
+						io:format("Function: ~s/~s\n",[FunName,Arity]),
+						io:format("~s\n",["----------------------------"]),
+						io:format("Generated tests: ~p\n",[dict:size(Same)]),
+						io:format("Both versions of the program generate identical traces for the interes point\n"),
+						io:format("~s\n",["----------------------------"]);
+					X ->
+						SameTests = dict:size(Same),
+						io:format("Function: ~s/~s\n",[FunName,Arity]),
+						io:format("~s\n",["----------------------------"]),
+						io:format("Generated tests: ~p\n",[SameTests+X]),
+						Percentage = trunc((X/(SameTests+X))*10000)/100,
+						io:format("Mismatching tests: ~p (~p%)\n",[X,Percentage]),
+						io:format("All mismatching results were saved at: ./results/~s.txt\n",[FunName++"_"++Arity]),
+						{ErrorInput,{TraceP1,TraceP2}} = (catch dict:map(fun(K,V) -> throw({K,V}) end, Different)),
+						
+						io:format("~s\n",["--- First error detected ---"]),
+						InputString = lists:flatten(io_lib:format("~w", [ErrorInput])),
+						FinalInput = string:substr(InputString,2,length(InputString)-2),
+						io:format("Call: ~s(~s)\n",[FunName,FinalInput]),
+						ModuleName1 = list_to_atom(filename:basename(File1,".erl")),
+						ModuleName2 = list_to_atom(filename:basename(File2,".erl")),
+						io:format("~p Trace (~s,~s): ~p\n",[ModuleName1,Line1,Var1,TraceP1]),
+						io:format("~p Trace (~s,~s): ~p\n",[ModuleName2,Line2,Var2,TraceP2]),
+						io:format("~s\n",["----------------------------"])
+				end,
 
 				{ok,Fd} = file:open("./tmp/Results.txt",[write]),
 				io:format(Fd,"~p.\n~p.",[Empty,Valued]),
 
-				{ok,Fd2} = file:open("./tmp/ReadeableResults.txt",[write]),
-				io:format(Fd2,"*** INPUT ----> VALUE ***\n",[]),
-				dict:map(fun(K,V) -> io:format(Fd2,"~w ----> ~w\n",[K,V]) end,Empty),
-				dict:map(fun(K,V) -> io:format(Fd2,"~w ----> ~w\n",[K,V]) end,Valued),
-				%dict:map(fun(K,V) -> io:format(Fd,"~p\n",[V]) end,Valued),
+				ReadeableFileName = "./results/"++FunName++"_"++Arity++".txt",
+				{ok,Fd2} = file:open(ReadeableFileName,[write]),
+				Mod1 = filename:basename(File1,".erl"),
+				Mod2 = filename:basename(File2,".erl"),
+				io:format(Fd2,"****************************************\n",[]),
+				io:format(Fd2,"EXECUTION ----> {~s_Trace, ~s_Trace}\n",[Mod1,Mod2]),
+				io:format(Fd2,"****************************************\n",[]),
+				io:format(Fd2,"~s Interest Point: ~s,~s,~s\n",[Mod1,Line1,Var1,Oc1]),
+				io:format(Fd2,"~s Interest Point: ~s,~s,~s\n",[Mod2,Line2,Var2,Oc2]),
+				io:format(Fd2,"****************************************\n",[]),
+				%io:format(Fd2,"DIFFERENT TRACES\n",[]),
+				dict:map(fun(K,V) -> 
+						InputString0 = lists:flatten(io_lib:format("~w", [K])),
+						FinalInput0 = string:substr(InputString0,2,length(InputString0)-2),
+						io:format(Fd2,"~s(~s) ----> ~w\n",[FunName,FinalInput0,V]) end,Different);
+				% io:format(Fd2,"*** EXECUTION ----> [COMMON TRACE] ***\n",[]),
+				% io:format(Fd2,"COMMON TRACES TRACES\n",[]),
+				% dict:map(fun(K,V) -> 
+				% 		InputString0 = lists:flatten(io_lib:format("~w", [K])),
+				% 		FinalInput0 = string:substr(InputString0,2,length(InputString0)-2),
+				% 		io:format(Fd2,"~s(~s) ----> ~w\n",[FunName,FinalInput0,V]) end,Same);
+				% dict:map(fun(K,V) -> io:format(Fd,"~p\n",[V]) end,Valued),
 				
-				printer("Same Value"),
-				printer(dict:size(Same)),
-				printer("Different Value"),
-				printer(dict:size(Different)),
 				% printer("Coverage"),
 				% printer(Cvg),
 
-				case dict:size(Different) of
-					0 ->
-						printer("All tests returned the same value");
-					X ->
-						SameTests = dict:size(Same),
-						io:format("The number of generated tests is: ~p\n",[SameTests+X]),
-						io:format("The number of incorrect tests is: ~p\n",[X]),
 
-						{ErrorInput,{TraceP1,TraceP2}} = (catch dict:map(fun(K,V) -> throw({K,V}) end, Different)),
-						
-						io:format("~s\n",["--- First error detected ---"]),
-						io:format("Input: ~p\n",[ErrorInput]),
-						ModuleName1 = list_to_atom(filename:basename(File1,".erl")),
-						ModuleName2 = list_to_atom(filename:basename(File2,".erl")),
-						io:format("~p results: ~p\n",[ModuleName1,TraceP1]),
-						io:format("~p results: ~p\n",[ModuleName2,TraceP2])
-				end;
 				% Save results in projects/default/default.txt file
 			_ ->
 				printer(error),
@@ -97,12 +128,12 @@ run([File,OffsetStart,OffsetEnd,Fun,Time]) ->
 		input_manager ! {get_results,self()},
 		receive
 			{Empty,Valued,_,_,Cvg} -> 
-				printer("Empty inputs"),
+				printer("Generated inputs with empty trace (Not executing the interest point)"),
 				printer(dict:size(Empty)),
-				printer("Valued inputs"),
-				printer(dict:size(Valued)),
-				printer("Coverage"),
-				printer(Cvg);
+				printer("Generated inputs with valued trace (Executing the interest point)"),
+				printer(dict:size(Valued));
+				% printer("Coverage"),
+				% printer(Cvg);
 				% Save results in projects/default/default.txt file
 			X ->
 				printer(X),
@@ -128,5 +159,10 @@ run([File,OffsetStart,OffsetEnd,Fun,Time]) ->
 				timer:exit_after(0,Pid2,kill)
 		end
 	end.
+
+get_function_name(FunArity) ->
+	Tokens = string:tokens(FunArity,"/"),
+	[Name,Arity] = Tokens,
+	{Name,Arity}.
 
 printer(X) -> io:format("~p\n",[X]).
