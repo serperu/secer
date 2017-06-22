@@ -20,6 +20,23 @@ Phase 1: Cuter
 3.- Alcanzar el timeout 
 
 ***** TODO *****
++ Cuando el POI es una variable en un patron, al que llega con un valor previo, se enviara el valor que intentará hacer matching, no el que tenia.
++ En la LC el solucionar el problema del generador del ejemplo:
+	 [undef || {X,PI,{X,2,Y}} <- L, Y > 1] % TOP URGENTE
+	 				FV = {X,2,Y} 
+
+	 			{X,PI,FV} <- L, begin 
+	 								{X,2,Y} = FV,
+	 								Y > 1
+	 							end
++ La solucion de la lc es un generador con la parte de la derecha del POI en lugar de un filtro. 
++ Tenemos que asegurarnos de pasar por todas las clausulas y evitar que se genenren valores siempre para la misma clausula
+en el mutating test
+
++ Ampliaciones:
+	- Definir una lista de puntos de interes, esto lleva a instrumentar todos los puntos de interes simultaneamente, y obtener los resultados de todos en una sola ejecución. 
++ Probar funciones de aridad 0
+
 + Al seleccionar patron de clause, la guarda debe ponerse a true % DONE
 + Definir una lista de funciones como funcion de entrada % DONE
 + No definir funcion de entrada coger exports
@@ -28,10 +45,6 @@ Phase 1: Cuter
 + Dividir las guardas para tener en cuenta cortocircuitados y instrumentarlo a base de cases de cases 
 
 + Probar si funciona en concurrencia con ejemplos deterministas de concurrencia (Para el paper)
-+ Buscar un programa o diseñar uno sencillo donde tengamos 3 versiones (Vital para el paper)
-1.- Programa original
-2.- Version refactorizada con errores
-3.- Version final sin errores
 
 + Parametro fun:
 ¿Proper genera funs? 
@@ -63,3 +76,7 @@ Cuando se calcule una mutacion con traza nueva se enviara un mensaje a si mismo 
 el rango de valores validos (al no poner rango explicito proper genera enteros entre -20 y 20 aproximadamente) % DONE
 + Definir la aridad en secer y diferenciar entre funciones con el mismo nombre y distinta aridad %DONE
 
++ Buscar un programa o diseñar uno sencillo donde tengamos 3 versiones (Vital para el paper) % DONE
+1.- Programa original
+2.- Version refactorizada con errores
+3.- Version final sin errores
