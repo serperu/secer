@@ -20,9 +20,11 @@ Phase 1: Cuter
 3.- Alcanzar el timeout 
 
 ***** TODO *****
++ Hacer el espejo. Dividimos el tiempo por 2 y aplicamos la mitad de tiempo a generar inputs en program1 y la otra mitad a generat inputs en program2 (sobretodo por el tema de que CutEr hara que se evaluen mas caminos).
+
 + Cuando el POI es una variable en un patron, al que llega con un valor previo, se enviara el valor que intentará hacer matching, no el que tenia.
 + En la LC el solucionar el problema del generador del ejemplo:
-	 [undef || {X,PI,{X,2,Y}} <- L, Y > 1] % TOP URGENTE
+	 [undef || {X,PI,{X,2,Y}} <- L, Y > 1] 
 	 				FV = {X,2,Y} 
 
 	 			{X,PI,FV} <- L, begin 
