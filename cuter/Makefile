@@ -1,0 +1,231 @@
+.PHONY: depend dialyzer clean cleandep distclean all utest ftest test suite
+SHELL := /bin/bash
+
+###----------------------------------------------------------------------
+### Orientation information
+###----------------------------------------------------------------------
+
+SRC  = src
+INCLUDE = include
+EBIN = ebin
+PRIV = $(PWD)/priv
+TEST = test
+UTEST_SRC = $(TEST)/utest/src
+UTEST_EBIN = $(TEST)/utest/ebin
+FTEST_SRC = $(TEST)/ftest/src
+FTEST_EBIN = $(TEST)/ftest/ebin
+LIB = $(PWD)/lib
+ERLC = erlc
+MECK = $(realpath lib/meck)
+PROPER = $(realpath lib/proper)
+GPB = $(realpath lib/gpb)
+PROTOC-ERL = $(GPB)/bin/protoc-erl
+GPB_INCLUDE = $(GPB)/include
+PROTOC=/Users/serperu/Desktop/cuter/lib/protoc-3.1.0/bin/protoc
+
+###----------------------------------------------------------------------
+### Set Environment Variables
+###----------------------------------------------------------------------
+
+export ERL_LIBS := $(PROPER):$(MECK):$(GPB):$$ERL_LIBS
+
+###----------------------------------------------------------------------
+### Flags
+###----------------------------------------------------------------------
+
+DIALYZER_APPS = erts kernel stdlib compiler crypto hipe syntax_tools
+DIALYZER_FLAGS = -Wunmatched_returns
+
+WARNS = +warn_exported_vars +warn_unused_import +warn_missing_spec #+warn_untyped_record
+WARNS_FTEST = +warn_exported_vars +warn_unused_import #+warn_missing_spec +warn_untyped_record
+ERLC_INCLUDE = -I $(INCLUDE) -I $(GPB_INCLUDE)
+ERLC_FLAGS = +debug_info $(WARNS) -Werror
+ERLC_FLAGS_PROTOBUFS = +debug_info $(WARNS_FTEST) -Werror
+ERLC_FLAGS_FTEST = +debug_info $(WARNS_FTEST) -Werror
+ERLC_FLAGS_NO_DBG = $(WARNS) -Werror
+ERLC_MACROS = -DEBIN=\"$(PWD)/$(EBIN)\" -DPYTHON_PATH=\"python\" -DPRIV=\"$(PRIV)\"
+
+HRL_FILES = \
+	cuter_macros \
+	eunit_config
+
+SRC_MODULES = \
+	cuter_binlib \
+	cuter_lib \
+	cuter \
+	cuter_codeserver \
+	cuter_cerl \
+	cuter_monitor \
+	cuter_log \
+	cuter_iserver \
+	cuter_eval \
+	cuter_symbolic \
+	cuter_mock \
+	cuter_env \
+	cuter_erlang \
+	cuter_pp \
+	cuter_scheduler_maxcover \
+	cuter_analyzer \
+	cuter_solver \
+	cuter_merger \
+	cuter_types \
+	cuter_minheap \
+	cuter_poller \
+	cuter_debug \
+	cuter_callgraph \
+	cuter_serial \
+	cerl_pmatch
+
+UTEST_MODULES = \
+	cuter_tests_lib \
+	cuter_tests \
+	cuter_codeserver_tests \
+	cuter_cerl_tests \
+	cuter_monitor_tests \
+	cuter_iserver_tests \
+	cuter_eval_tests \
+	cuter_solver_tests \
+	cuter_erlang_tests \
+	cuter_types_tests \
+	cuter_serial_tests \
+	cuter_pp_tests \
+	types_and_specs \
+	types_and_specs2
+
+FTEST_MODULES = \
+	bitstr \
+	whitelist \
+	otp_int \
+	complex_spec \
+	no_debug_info \
+	collection \
+	funs \
+	sum
+
+PRIV_MODULES = \
+	cuter_io \
+	cuter_z3 \
+	cuter_solve_offline \
+	cuter_representation
+
+PROTOBUFS = \
+	cuter_proto_erlang_term \
+	cuter_proto_solver_command \
+	cuter_proto_solver_response \
+	cuter_proto_log_entry \
+	cuter_proto_spec
+
+###----------------------------------------------------------------------
+### Targets
+###----------------------------------------------------------------------
+
+ERL_DIRS = \
+	$(SRC) \
+	$(UTEST_SRC) \
+	$(FTEST_SRC)
+
+HRL_DIRS = \
+	$(INCLUDE)
+
+TARGETS = \
+	cuter_target \
+	utest_target \
+	ftest_target
+
+vpath %.erl $(ERL_DIRS)
+
+vpath %.hrl $(HRL_DIRS)
+
+vpath %.proto $(SRC)
+
+vpath %.py $(PRIV)
+
+default: cuter_target
+
+suite: utest_target ftest_target
+
+test: utest ftest
+
+all: $(TARGETS) dialyzer utest ftest
+
+cuter_target: $(SRC_MODULES:%=$(EBIN)/%.beam) $(PROTOBUFS:%=$(EBIN)/%.beam) $(PROTOBUFS:%=$(PRIV)/%_pb2.py)
+
+utest_target: $(UTEST_MODULES:%=$(UTEST_EBIN)/%.beam)
+
+ftest_target: $(FTEST_MODULES:%=$(FTEST_EBIN)/%.beam)
+
+$(PROTOBUFS:%=$(INCLUDE)/%.hrl): $(PROTOBUFS:%=$(SRC)/%.erl)
+
+$(SRC)/%.erl: %.proto
+	@echo "PROTOC-ERL $(notdir  $<)"
+	@$(PROTOC-ERL) -defaults-for-omitted-optionals -I $(SRC) -o-erl $(SRC) -o-hrl $(INCLUDE) $(notdir  $<)
+
+$(PRIV)/%_pb2.py: %.proto
+	@echo "PROTOC $(notdir  $<)"
+	@$(PROTOC) -I $(SRC) --python_out=$(PRIV) $<
+
+$(EBIN)/%.beam: %.erl
+	@echo "ERLC $<"
+	@if [[ "$(PROTOBUFS)" =~ "$(basename $(notdir $<))" ]]; then \
+		$(ERLC) $(ERLC_INCLUDE) $(ERLC_FLAGS_PROTOBUFS) $(ERLC_MACROS) -o $(EBIN) $<; \
+	else \
+		$(ERLC) $(ERLC_INCLUDE) $(ERLC_FLAGS) $(ERLC_MACROS) -o $(EBIN) $<; \
+	fi
+
+$(UTEST_EBIN)/%.beam: %.erl
+	@echo "ERLC $<"
+	@$(ERLC) $(ERLC_INCLUDE) $(ERLC_FLAGS) $(ERLC_MACROS) -o $(UTEST_EBIN) $<
+
+$(FTEST_EBIN)/no_debug_info.beam: no_debug_info.erl
+	@echo "ERLC $<"
+	@$(ERLC) $(ERLC_INCLUDE) $(ERLC_FLAGS_NO_DBG) $(ERLC_MACROS) -o $(FTEST_EBIN) $<
+
+$(FTEST_EBIN)/%.beam: %.erl
+	@echo "ERLC $<"
+	@$(ERLC) $(ERLC_INCLUDE) $(ERLC_FLAGS_FTEST) $(ERLC_MACROS) -o $(FTEST_EBIN) $<
+
+utest: $(TARGETS)
+	@(./$(TEST)/eunit_test -e $(EBIN) -u $(UTEST_EBIN) -- $(SRC_MODULES))
+	@(./$(TEST)/python_test -p $(PRIV) -e $(EBIN) -u $(UTEST_EBIN) -- $(PRIV_MODULES))
+	@(python $(TEST)/terms.py)
+
+ftest: $(TARGETS)
+	@(./$(TEST)/functional_test --no=$(no))
+
+z3py-ftest: $(TARGETS)
+	@(./$(TEST)/functional_test --no=$(no) --z3py)
+
+dialyzer: .plt/.cuter_plt cuter_target
+	dialyzer --plt $< $(DIALYZER_FLAGS) $(EBIN)/*.beam
+
+.plt/.cuter_plt:
+	@mkdir -p .plt/
+	dialyzer --build_plt --output_plt $@ --apps $(DIALYZER_APPS)
+
+-include .depend
+
+depend: cleandep $(SRC_MODULES:%=%.dep) $(HRL_FILES:%=%.hrl)
+	@echo ""
+	@echo "To build CutEr, execute:"
+	@echo "  make"
+
+%.dep: %.erl $(PROTOBUFS:%=$(INCLUDE)/%.hrl)
+	@echo "ERLC -M -MT $<"
+	@$(ERLC) $(ERLC_INCLUDE) -M -MT $(patsubst $(SRC)/%.erl,$(EBIN)/%.beam,$<) $< >> .depend
+
+clean:
+	$(RM) $(EBIN)/*.beam
+
+clean_tests:
+	$(RM) $(UTEST_EBIN)/*.beam $(FTEST_EBIN)/*.beam
+
+cleandep:
+	$(RM) .depend
+
+cleangen: cleandep cleanprotobufs
+	$(RM) .plt/.cuter_plt
+
+cleanprotobufs:
+	$(RM) $(PROTOBUFS:%=$(SRC)/%.erl) $(PROTOBUFS:%=$(INCLUDE)/%.hrl) $(PROTOBUFS:%=$(PRIV)/%_pb2.py)
+
+distclean: clean clean_tests cleangen cleanprotobufs

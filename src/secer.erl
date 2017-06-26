@@ -33,7 +33,7 @@ run([File1,Line1,Var1,Oc1,File2,Line2,Var2,Oc2,Fun,Time]) ->
 						io:format("Function: ~s/~s\n",[FunName,Arity]),
 						io:format("~s\n",["----------------------------"]),
 						io:format("Generated tests: ~p\n",[dict:size(Same)]),
-						io:format("Both versions of the program generate identical traces for the interes point\n"),
+						io:format("Both versions of the program generate identical traces for the point of interest\n"),
 						io:format("~s\n",["----------------------------"]);
 					X ->
 						SameTests = dict:size(Same),
@@ -45,14 +45,25 @@ run([File1,Line1,Var1,Oc1,File2,Line2,Var2,Oc2,Fun,Time]) ->
 						io:format("All mismatching results were saved at: ./results/~s.txt\n",[FunName++"_"++Arity]),
 						{ErrorInput,{TraceP1,TraceP2}} = (catch dict:map(fun(K,V) -> throw({K,V}) end, Different)),
 						
+						% dict:map(
+						% 	fun(K,V) -> 
+						% 		case V of
+						% 			{T1,T2} when length(T1) == length(T2) ->
+						% 				printer({K,{T1,T2}}),
+						% 				io:get_line("");
+						% 			_ ->
+						% 				continue
+						% 		end
+						% 	end, Different),
+
 						io:format("~s\n",["--- First error detected ---"]),
 						InputString = lists:flatten(io_lib:format("~w", [ErrorInput])),
 						FinalInput = string:substr(InputString,2,length(InputString)-2),
 						io:format("Call: ~s(~s)\n",[FunName,FinalInput]),
 						ModuleName1 = list_to_atom(filename:basename(File1,".erl")),
 						ModuleName2 = list_to_atom(filename:basename(File2,".erl")),
-						io:format("~p Trace (~s,~s): ~p\n",[ModuleName1,Line1,Var1,TraceP1]),
-						io:format("~p Trace (~s,~s): ~p\n",[ModuleName2,Line2,Var2,TraceP2]),
+						io:format("~p Trace (~s,~s,~s): ~p\n",[ModuleName1,Line1,Var1,Oc1,TraceP1]),
+						io:format("~p Trace (~s,~s,~s): ~p\n",[ModuleName2,Line2,Var2,Oc2,TraceP2]),
 						io:format("~s\n",["----------------------------"])
 				end,
 
@@ -108,7 +119,15 @@ run([File1,Line1,Var1,Oc1,File2,Line2,Var2,Oc2,Fun,Time]) ->
 				unregister(input_gen),
 				timer:exit_after(0,Pid1,kill),
 				timer:exit_after(0,Pid2,kill)
-		end
+		end,
+		TmpM1 = "./tmp/"++filename:basename(File1,".erl")++"Tmp",
+		TmpM2 = "./tmp/"++filename:basename(File2,".erl")++"Tmp",
+
+		file:delete(TmpM1++".erl"),
+		file:delete(TmpM2++".erl"),
+		file:delete(TmpM1++".beam"),
+		file:delete(TmpM2++".beam"),
+		file:delete(filename:basename(File1,".erl")++".beam")
 	end;
 run([File,OffsetStart,OffsetEnd,Fun,Time]) ->
 	try 
@@ -128,9 +147,9 @@ run([File,OffsetStart,OffsetEnd,Fun,Time]) ->
 		input_manager ! {get_results,self()},
 		receive
 			{Empty,Valued,_,_,Cvg} -> 
-				printer("Generated inputs with empty trace (Not executing the interest point)"),
+				printer("Generated inputs with empty trace (Not executing the point of interest)"),
 				printer(dict:size(Empty)),
-				printer("Generated inputs with valued trace (Executing the interest point)"),
+				printer("Generated inputs with valued trace (Executing the point of interest)"),
 				printer(dict:size(Valued));
 				% printer("Coverage"),
 				% printer(Cvg);
@@ -157,7 +176,11 @@ run([File,OffsetStart,OffsetEnd,Fun,Time]) ->
 				unregister(input_gen),
 				timer:exit_after(0,Pid1,kill),
 				timer:exit_after(0,Pid2,kill)
-		end
+		end,
+		TmpM1 = "./tmp/"++filename:basename(File,".erl")++"Tmp",
+		file:delete(filename:basename(File,".erl")++".beam"),
+		file:delete(TmpM1++".erl"),
+		file:delete(TmpM1++".beam")
 	end.
 
 get_function_name(FunArity) ->

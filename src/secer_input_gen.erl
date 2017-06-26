@@ -16,6 +16,7 @@ main(Program1,Line1,Var1,Oc1,Program2,Line2,Var2,Oc2,Function,Time) ->
 		{ParamClauses,TypeDicts} = analyze_types(Program1,FunName,Arity),
 		TimeOut = Time div 3 * 2,
 		Inputs = execute_cuter(ModuleName1,FunName,ParamClauses,TypeDicts,TimeOut),
+		
 		% PART 2
 		instrument_code(Program1,list_to_integer(Line1),Var1,list_to_integer(Oc1)),
 		instrument_code(Program2,list_to_integer(Line2),Var2,list_to_integer(Oc2)),
@@ -529,6 +530,7 @@ get_cuter_inputs(ModuleName,FunName,Input,TimeOut) ->
 			end
 	after TimeOut * 1000 -> 
 			timer:exit_after(0,cuterProcess,kill),
+			os:cmd("rm -Rf ./temp"),
 			cuterIn ! {get_results,Self},
 			receive
 				[] ->	
@@ -733,15 +735,11 @@ increment_integer_types(Dic) ->
 		end, 
 		Dic).
 
-
-%%% PENDING %%%
 identify_clause_input([Clause],Dicts,Input) ->
 	{ok,Dict} = dict:find(Clause,Dicts),
 	{Clause,Dict};
 identify_clause_input([Clause|Clauses],Dicts,Input) ->
 	{ok,Dict} = dict:find(Clause,Dicts),
-	%printer(Dict),
-	%io:get_line(""),
 	case is_input(Clause,Dict,Input) of
 		true ->
 			{ok,Dict} = dict:find(Clause,Dicts),

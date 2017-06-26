@@ -1,0 +1,12 @@
+language: erlang
+notifications:
+  email:
+    - hello@alind.io
+otp_release:
+  - 17.3
+  - 17.1
+  - 17.0
+  - R16B03-1
+  - R15B03
+before_script: "make get-deps"
+script: "make all"

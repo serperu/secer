@@ -5,3 +5,5 @@ more_files/*
 ebin/*.beam
 Tama_typer/typer_mod.erl
 Tama_typer/typer.beam
+results/*
+tmp/*
