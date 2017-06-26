@@ -7,3 +7,4 @@ Tama_typer/typer_mod.erl
 Tama_typer/typer.beam
 results/*
 tmp/*
+cuter/ebin/*
