@@ -6,7 +6,7 @@ This tool provides a new granularity level of tracing, any variable of the code 
 
 SecEr implements a communication between Erlang modules and tools such as [TypEr](https://github.com/erlang/typer), [PropEr](https://github.com/manopapad/proper), and [CutEr](https://github.com/aggelgian/cuter). This means that SecEr handles the output of each tool and connects it with the next tool, taking advantage of the combined potential of the tools.
 
-Note: Our tool implements the module typer_mod.erl with several modifications over the typer.erl stardard library module (in the dialyzer library). This implementation performs some calls to the typer.erl module. This module can present differences between Erlang versions and this could lead to unexpected execution errors. SecEr has been implemented and tested with the Erlang version 19.2.3, and the typer version 0.9.11.
+<!--Note: Our tool implements the module typer_mod.erl with several modifications over the typer.erl stardard library module (in the dialyzer library). This implementation performs some calls to the typer.erl module. This module can present differences between Erlang versions and this could lead to unexpected execution errors. SecEr has been implemented and tested with the Erlang version 19.2.3, and the typer version 0.9.11.-->
 
 In the rest of this document we describe the main features and functionality of SecEr.
 
