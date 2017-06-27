@@ -32,7 +32,7 @@ If we want to run the command to only generate a test suite, we need to provide 
 
 Example
 =======
-Consider the files example0.erl (with point of interest {10,Happy,1}) and example1.erl (with point of interest {21,Happy,1}) as two versions of the same program. 
+Consider the files `example0.erl` (with point of interest `{10,Happy,1}`) and `example1.erl` (with point of interest `{21,Happy,1}`) as two versions of the same program. 
 
 For a single file test generation with the function `main/2` as input and a timeout of 15 seconds, the secer command would be used as follows:
 	
