@@ -90,8 +90,9 @@ main(ProgramName,Line,Var,Oc,Function,Time) ->
 			fun(I) ->
 				catch apply(ModuleName,FunName,I),
 				Cvg = get_coverage(ModuleName),
-				identify_clause_input(ParamClauses,TypeDicts,I),
-				execute_input(ModTmp,FunName,I,Cvg)
+				{Clause,Dic} = identify_clause_input(ParamClauses,TypeDicts,I),
+				validate_input(ModuleName,FunName,I,Clause,Dic)
+				%execute_input(ModTmp,FunName,I,Cvg)
 			end,
 			Inputs),
 		gen_random_inputs(ModuleName,empty,FunName,ParamClauses,TypeDicts,0)
@@ -117,7 +118,6 @@ analyze_types(FileName,FunName,Arity) ->
 		false -> 
 			printer("The selected function is not exported"),
 			secer ! die;
-			%throw("Unexported function");
 		true ->
 			FuncTypes = typer_mod:get_type_inside_erl(["--show_exported", FileName]),
 			Exp = exported(Exports,FuncTypes,[]),
@@ -126,13 +126,7 @@ analyze_types(FileName,FunName,Arity) ->
 			{_Origin,InputTypes} = get_inputs(FunctionSpec),
 			
 			ParamNames = get_parameters(Abstract,FunName),
-			% printer("ParamNames"),
-			% printer(ParamNames),
-			% printer("InputTypes"),
-			% printer(InputTypes),
 			DictOfDicts = generate_all_clause_dicts(ParamNames,InputTypes),
-			% printer("GeneralDict"),
-			% printer(DictOfDicts),
 			{ParamNames,DictOfDicts}
 	end.
 execute_cuter(ModuleName,FunName,ParamClauses,Dicts,TimeOut) ->

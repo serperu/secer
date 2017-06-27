@@ -14,7 +14,7 @@ main([
 		"-li", Line2,
 		"-var", Var2,
 		"-oc", Oc2,
-		"-fun", Fun,
+		"-funs", Fun,
 		"-to", Time
 	]) -> 
 
@@ -42,7 +42,7 @@ main([
 		"-f", File2,
 		"-li", Line2,
 		"-var", Var2,
-		"-fun", Fun,
+		"-funs", Fun,
 		"-to", Time
 	]) -> 
 
@@ -69,7 +69,7 @@ main([
 		"-li", Line2,
 		"-var", Var2,
 		"-oc", Oc2,
-		"-fun", Fun,
+		"-funs", Fun,
 		"-to", Time
 	]) -> 
 
@@ -97,7 +97,7 @@ main([
 		"-f", File2,
 		"-li", Line2,
 		"-var", Var2,
-		"-fun", Fun,
+		"-funs", Fun,
 		"-to", Time
 	]) -> 
 
@@ -122,7 +122,7 @@ main([
 		"-li", Line, 
 		"-var", Var,
 		"-oc", Oc,
-		"-fun", Fun,
+		"-funs", Fun,
 		"-to", Time
 	]) -> 
 
@@ -145,7 +145,7 @@ main([
 		"-f", File, 
 		"-li", Line, 
 		"-var", Var,
-		"-fun", Fun,
+		"-funs", Fun,
 		"-to", Time
 	]) -> 
 
@@ -169,17 +169,17 @@ main(_) ->
 usage(1) ->
     io:format("Error in command\nUsage: secer -f file1.erl -li line1 -var variable1 [-oc occurrence1] 
             [-f file2.erl -li line2 -var variable2 [-oc occurrence2]]          
-             -fun input_function -to timeout\n"),
+             -funs input_function -to timeout\n"),
     halt(1);
 usage(2) ->
-	io:format("Usage: secer -f file.erl -li line -var variable [-oc occurrence] -fun input_function -to timeout\n"),
+	io:format("Usage: secer -f file.erl -li line -var variable [-oc occurrence] -funs input_function -to timeout\n"),
 	halt(1).
 
 help_message() ->
 	"
   Usage: secer [--help] -f file -li line -var variable [-oc occurrence] 
                        [-f file -li line -var variable [-oc occurrence]]
-                        -fun input_function* -to timeout
+                        -funs input_function* -to timeout
 
   Options:
     -f file.erl
@@ -195,7 +195,7 @@ help_message() ->
             indicate the occurrence number of the 
             selected variable in the specified line
             (1 by default).
-    -fun fun_name/arity*
+    -funs fun_name/arity*
             indicate a list of the exported function/arity 
             that are being called to test the value of the 
             interest point. Each function/arity expend

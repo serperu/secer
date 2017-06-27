@@ -1,4 +1,4 @@
--module(happy1).
+-module(example1).
 -export([main/2]).
 -import(lists, [map/2, member/2, sort/1, sum/1]).
 is_happy(X, XS) ->
@@ -24,5 +24,7 @@ happy(X, Top, XS) ->
 				false -> happy(X + 1,Top, XS)
 			end
 	end.
+
+-spec main(pos_integer(),pos_integer()) -> [pos_integer()].
 main(N, M) -> 
 	happy(N, M, []).

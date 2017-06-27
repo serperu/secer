@@ -18,7 +18,7 @@ run([File1,Line1,Var1,Oc1,File2,Line2,Var2,Oc2,Fun,Time]) ->
 
 		input_manager ! {get_results,self()},
 		receive
-			{Empty,Valued,Same,Different,Cvg} -> 
+			{Empty,Valued,Same,Different,_Cvg} -> 
 				% printer("Empty Trace"),
 				% printer(dict:size(Empty)),
 				% printer("Valued Trace"),
@@ -129,13 +129,14 @@ run([File1,Line1,Var1,Oc1,File2,Line2,Var2,Oc2,Fun,Time]) ->
 		file:delete(TmpM2++".beam"),
 		file:delete(filename:basename(File1,".erl")++".beam")
 	end;
-run([File,OffsetStart,OffsetEnd,Fun,Time]) ->
+run([File,Line,Var,Oc,Fun,Time]) ->
 	try 
 		TimeOut = list_to_integer(Time),
 		register(secer,self()),
-		printer(whereis(secer)),
-		register(input_gen,spawn(secer_input_gen,main,[File,OffsetStart,OffsetEnd,Fun,TimeOut])),
+		register(input_gen,spawn(secer_input_gen,main,[File,Line,Var,Oc,Fun,TimeOut])),
 		register(input_manager,spawn(secer_im_server,init,[])),
+
+		{FunName,Arity} = get_function_name(Fun),
 
 		receive
 			die -> 
@@ -146,14 +147,53 @@ run([File,OffsetStart,OffsetEnd,Fun,Time]) ->
 
 		input_manager ! {get_results,self()},
 		receive
-			{Empty,Valued,_,_,Cvg} -> 
-				printer("Generated inputs with empty trace (Not executing the point of interest)"),
-				printer(dict:size(Empty)),
-				printer("Generated inputs with valued trace (Executing the point of interest)"),
-				printer(dict:size(Valued));
+			{Empty,Valued,_,_,_Cvg} -> 
+				SizeEmpty = dict:size(Empty),
+				SizeValue = dict:size(Valued),
+				io:format("Function: ~s/~s\n",[FunName,Arity]),
+				io:format("~s\n",["----------------------------"]),
+				io:format("Generated tests: ~p\n",[SizeEmpty+SizeValue]),
+				case dict:size(Empty) of
+					0 ->
+						ok;
+					SizeE ->
+						io:format("Not executing the point of interest: ~p\n",[SizeE])
+				end,
+				case dict:size(Valued) of
+					0 -> 
+						ok;
+					SizeV ->
+						io:format("Executing the point of interest: ~p\n",[SizeV])
+				end,
 				% printer("Coverage"),
 				% printer(Cvg);
-				% Save results in projects/default/default.txt file
+				ReadeableFileName = "./results/"++FunName++"_"++Arity++".txt",
+				io:format("Results saved in: ~s\n",[ReadeableFileName]),
+				io:format("~s\n",["----------------------------"]),
+				
+				{ok,Fd} = file:open(ReadeableFileName,[write]),
+
+				Mod = filename:basename(File,".erl"),
+
+				io:format(Fd,"****************************************\n",[]),
+				io:format(Fd,"EXECUTION ----> ~s_Trace\n",[Mod]),
+				io:format(Fd,"****************************************\n",[]),
+				io:format(Fd,"~s Interest Point: ~s,~s,~s\n",[Mod,Line,Var,Oc]),
+				io:format(Fd,"****************************************\n",[]),
+				dict:map(
+					fun(K,V) -> 
+						InputString = lists:flatten(io_lib:format("~w", [K])),
+						FinalInput = string:substr(InputString,2,length(InputString)-2),
+						io:format(Fd,"~s(~s) ----> ~w\n",[FunName,FinalInput,V]) 
+					end,
+					Valued),
+				dict:map(
+					fun(K,V) -> 
+						InputString = lists:flatten(io_lib:format("~w", [K])),
+						FinalInput = string:substr(InputString,2,length(InputString)-2),
+						io:format(Fd,"~s(~s) ----> ~w\n",[FunName,FinalInput,V]) 
+					end,
+					Empty);
 			X ->
 				printer(X),
 				printer(error),
