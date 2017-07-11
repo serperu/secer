@@ -8,3 +8,4 @@ Tama_typer/typer.beam
 results/*
 tmp/*
 cuter/ebin/*
+cuter/Makefile
