@@ -21,7 +21,7 @@ PROPER = $(realpath lib/proper)
 GPB = $(realpath lib/gpb)
 PROTOC-ERL = $(GPB)/bin/protoc-erl
 GPB_INCLUDE = $(GPB)/include
-PROTOC=/Users/serperu/Desktop/cuter/lib/protoc-3.1.0/bin/protoc
+PROTOC=./lib/protoc-3.1.0/bin/protoc
 
 ###----------------------------------------------------------------------
 ### Set Environment Variables

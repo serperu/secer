@@ -104,22 +104,6 @@ list(L,{Line,Sc_name,Oc,N,CurrentOc},_,Path) ->
 		{Line,Sc_name,Oc,1,CurrentOc},
 		L).
 
-revert_sc(Node,[{_Type,N,M}|T],Sc_name) ->
-	Children = erl_syntax:subtrees(Node),
-	Child = lists:nth(N,Children),
-	Elem = lists:nth(M,Child),
-	
-	Replaced_expression = case T of
-		[] ->
-			erl_syntax:variable(Sc_name);
-		_ ->
-			revert_sc(Elem,T,Sc_name)
-	end,
-	
-	New_child = replacenth(M,Replaced_expression,Child),
-	New_children = replacenth(N,New_child,Children),
-	erl_syntax:make_tree(erl_syntax:type(Node),New_children).
-
 %%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% ADD VARS TO VAR GEN %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -249,19 +233,20 @@ replace_lc(Node,[{generator,N1,M1},{Type,N2,M2}|T]) ->
 	Child = lists:nth(N1,Children),
 	Elem = lists:nth(M1,Child),
 
+	New_generator = replace_generator(Elem,[{Type,N2,M2}|T]),
+
 	Final_child = case N2 of 
 		1 -> 
-			New_generator = replace_generator(Elem,[{Type,N2,M2}|T]),
 			New_child = replacenth(M1,New_generator,Child),
-			New_filter = add_neccessary_filter(Elem,[{Type,N2,M2}|T],erl_syntax:generator_pattern(New_generator)),
-			add_at_nth(New_filter,M1+1,1,New_child,[]);
+			New_generator_aux = add_neccessary_generator(Elem,[{Type,N2,M2}|T],erl_syntax:generator_pattern(New_generator)),
+			add_at_nth(New_generator_aux,M1+1,1,New_child,[]);
 		_ -> 
-			New_generator = replace_generator(Elem,[{Type,N2,M2}|T]),
 			replacenth(M1,New_generator,Child)
 	end,
 
 	New_children = replacenth(N1,Final_child,Children),
 	erl_syntax:make_tree(erl_syntax:type(Node),New_children);
+
 replace_lc(Node,Path) -> 
  	replace_expression(Node,Path).
 
@@ -274,20 +259,19 @@ replace_generator(Node,[{Type,N,M}|T]) ->
 			replace_expression(Node,[{Type,N,M}|T])
 	end.
 
-add_neccessary_filter(Node,[{Type,N,M}|T],New_pattern) ->
+add_neccessary_generator(Node,[{Type,N,M}|T],New_pattern) ->
 	Old_pattern = erl_syntax:generator_pattern(Node),
 	case N of
 		1 ->
 			Node_sc = obtain_sc(Node,[{Type,N,M}|T]),
-
 			Expr_send_sc = erl_syntax:infix_expr(erl_syntax:atom("tracer"),erl_syntax:operator("!"),
-								erl_syntax:tuple([erl_syntax:atom(add),Node_sc])),
-			Case_clause_true = erl_syntax:clause([Old_pattern],[],[erl_syntax:atom(true)]),
-			Case_clause_false = erl_syntax:clause([erl_syntax:underscore()],[],[erl_syntax:atom(false)]),
-			Expr_case = erl_syntax:case_expr(New_pattern,[Case_clause_true,Case_clause_false]),
-		 	erl_syntax:block_expr([Expr_send_sc,Expr_case]);
+			 					erl_syntax:tuple([erl_syntax:atom(add),Node_sc])),
+			Expr_list_gen = erl_syntax:list([New_pattern]),
+			Gen_Body = erl_syntax:block_expr([Expr_send_sc,Expr_list_gen]),
+
+			erl_syntax:generator(Old_pattern,Gen_Body);
 		 _ -> 
-		 	throw("ERROR ADDING FILTER IN LC")
+		 	throw("ERROR ADDING GENERATOR IN LC")
 	end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -544,9 +528,11 @@ obtain_sc(Node,[{_,N,M}|T]) ->
 %%% REPLACE PATTERN LC %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%
 replace_novar_pattern_with_free_variables(Pattern,[{_,_,M}]) -> % DEVUELVE EN FORMATO [Pattern1,Pattern2...]
-	replace_non_vars_after_position(Pattern,M);
+	New_Pattern = replace_all_after_position(Pattern,M),
+	NewSC = gen_and_put_scFreeVar(),
+	replacenth(M,NewSC,New_Pattern);
 replace_novar_pattern_with_free_variables(Pattern,[{_,_,M1},{_Type,N,M2}|T]) ->
-	New_pattern = replace_non_vars_after_position(Pattern,M1),
+	New_pattern = replace_all_after_position(Pattern,M1),
 
 	Sc_elem = lists:nth(M1,New_pattern),
 	Children = erl_syntax:subtrees(Sc_elem),
@@ -557,29 +543,18 @@ replace_novar_pattern_with_free_variables(Pattern,[{_,_,M1},{_Type,N,M2}|T]) ->
 	Final_children = replacenth(N,New_child,Children),
 	replacenth(M1,erl_syntax:make_tree(erl_syntax:type(Sc_elem),Final_children),New_pattern). % CAMBIAR TAMBIEN EN EL OTRO REPLACE PATTERN
 
-replace_non_vars_after_position(List,Index) ->
-	replace_non_vars_after_position(List,Index,[],1).
+replace_all_after_position(List,Index) ->
+	replace_all_after_position(List,Index,[],1).
 
-replace_non_vars_after_position([],_,New_list,_) ->
+replace_all_after_position([],_,New_list,_) ->
 	lists:reverse(New_list);
-replace_non_vars_after_position([H|T],Index,New_list,Pos) ->
+replace_all_after_position([H|T],Index,New_list,Pos) ->
 	case Pos > Index of
 		true ->
-			case erl_syntax:type(H) of 
-				variable ->  
-					replace_non_vars_after_position(T,Index,[H|New_list],Pos+1);
-				_ ->
-					New_H = erl_syntax_lib:map(fun(Node) ->
-											case {erl_syntax:type(Node),erl_syntax:is_leaf(Node)} of
-												{Type,true} when Type =/= variable -> gen_free_var();
-												_ -> Node
-											end
-										end,
-										H),
-					replace_non_vars_after_position(T,Index,[New_H|New_list],Pos+1)
-			end;
+			New_H = gen_free_var(),
+			replace_all_after_position(T,Index,[New_H|New_list],Pos+1);
 		false ->
-			replace_non_vars_after_position(T,Index,[H|New_list],Pos+1)
+			replace_all_after_position(T,Index,[H|New_list],Pos+1)
 	end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -627,7 +602,7 @@ replace_after_position([H|T],Index,New_list,Pos,Dic) -> %REVISAR QUE HACER CUAND
 									{Node,Dict};
 								false ->
 									Bool = dict:fold(
-										fun(K,V,Acc) ->
+										fun(_,V,Acc) ->
 											case Node of
 												V ->
 													true;
@@ -682,17 +657,17 @@ add_at_nth(New_element,Add_index,Index,[Elem|List],New_list) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%
 %%% DEBUGGING PURPOSE %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%
-printer(Node) -> io:format("~p\n",[Node]).
-printers(Node) -> io:format("~s\n",[erl_prettypr:format(Node)]).
-printList([]) -> 
-	theEnd;
-printList([H|T]) ->
-	printer(H),
-	printer("<=============>"),
-	printList(T).
-printLists([]) -> 
-	printer("<=============>"),
-	theEnd;
-printLists([H|T]) ->
-	printers(H),
-	printLists(T).
+% printer(Node) -> io:format("~p\n",[Node]).
+% printers(Node) -> io:format("~s\n",[erl_prettypr:format(Node)]).
+% printList([]) -> 
+% 	theEnd;
+% printList([H|T]) ->
+% 	printer(H),
+% 	printer("<=============>"),
+% 	printList(T).
+% printLists([]) -> 
+% 	printer("<=============>"),
+% 	theEnd;
+% printLists([H|T]) ->
+% 	printers(H),
+% 	printLists(T).

@@ -11,7 +11,9 @@ run([File1,Line1,Var1,Oc1,File2,Line2,Var2,Oc2,Fun,Time]) ->
 
 		receive
 			die -> 
-				exit(0)
+				exit(0);
+			continue ->
+				ok
 		after TimeOut * 1000 ->
 				ok
 		end,

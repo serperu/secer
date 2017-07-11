@@ -12,39 +12,50 @@ main(Program1,Line1,Var1,Oc1,Program2,Line2,Var2,Oc2,Function,Time) ->
 		ModuleName2 = list_to_atom(filename:basename(Program2,".erl")),
 		{FunName,Arity} = divide_function(Function),
 
-		% PART 1
-		{ParamClauses,TypeDicts} = analyze_types(Program1,FunName,Arity),
-		TimeOut = Time div 3 * 2,
-		Inputs = execute_cuter(ModuleName1,FunName,ParamClauses,TypeDicts,TimeOut),
-		
-		% PART 2
-		instrument_code(Program1,list_to_integer(Line1),Var1,list_to_integer(Oc1)),
-		instrument_code(Program2,list_to_integer(Line2),Var2,list_to_integer(Oc2)),
-		
-		{ok, Fd} = file:open(?TMP_PATH++"cuter.txt", [write]),
-		Self = self(),
-		Ref = make_ref(),
-		spawn(fun() ->
-				group_leader(Fd,self()),
-				Self ! {cover_compilation(Program1),Ref}
-				end),
-		receive
-			{_,Ref} ->
-				file:close(Fd)
-		end,
+		case Arity of
+			0 ->
+				instrument_code(Program1,list_to_integer(Line1),Var1,list_to_integer(Oc1)),
+				instrument_code(Program2,list_to_integer(Line2),Var2,list_to_integer(Oc2)),
 
-		ModTmp1 = list_to_atom(filename:basename(Program1,".erl")++"Tmp"),
-		ModTmp2 = list_to_atom(filename:basename(Program2,".erl")++"Tmp"),
-		lists:map(
-			fun(I) ->
-				catch apply(ModuleName1,FunName,I),
-				Cvg = get_coverage(ModuleName1),
-				{Clause,Dic} = identify_clause_input(ParamClauses,TypeDicts,I),
-				validate_input(ModuleName1,ModuleName2,FunName,I,Clause,Dic)
-				%execute_input(ModTmp1,ModTmp2,FunName,I)
-			end,
-			Inputs),
-		gen_random_inputs(ModuleName1,ModuleName2,FunName,ParamClauses,TypeDicts,0)
+				ModTmp1 = list_to_atom(filename:basename(Program1,".erl")++"Tmp"),
+				ModTmp2 = list_to_atom(filename:basename(Program2,".erl")++"Tmp"),
+
+				execute_input(ModTmp1,ModTmp2,FunName,[],0);
+			_ ->
+				% PART 1
+				{ParamClauses,TypeDicts} = analyze_types(Program1,FunName,Arity),
+				TimeOut = Time div 3 * 2,
+				Inputs = execute_cuter(ModuleName1,FunName,ParamClauses,TypeDicts,TimeOut),
+				
+				% PART 2
+				instrument_code(Program1,list_to_integer(Line1),Var1,list_to_integer(Oc1)),
+				instrument_code(Program2,list_to_integer(Line2),Var2,list_to_integer(Oc2)),
+
+				{ok, Fd} = file:open(?TMP_PATH++"cuter.txt", [write]),
+				Self = self(),
+				Ref = make_ref(),
+				spawn(fun() ->
+						group_leader(Fd,self()),
+						Self ! {cover_compilation(Program1),Ref}
+						end),
+				receive
+					{_,Ref} ->
+						file:close(Fd)
+				end,
+
+				ModTmp1 = list_to_atom(filename:basename(Program1,".erl")++"Tmp"),
+				ModTmp2 = list_to_atom(filename:basename(Program2,".erl")++"Tmp"),
+				lists:map(
+					fun(I) ->
+						catch apply(ModuleName1,FunName,I),
+						Cvg = get_coverage(ModuleName1),
+						{Clause,Dic} = identify_clause_input(ParamClauses,TypeDicts,I),
+						validate_input(ModuleName1,ModuleName2,FunName,I,Clause,Dic)
+						%execute_input(ModTmp1,ModTmp2,FunName,I)
+					end,
+					Inputs),
+				gen_random_inputs(ModuleName1,ModuleName2,FunName,ParamClauses,TypeDicts,0)
+		end
 	catch 
 		E:R ->
 			{E,R}
@@ -54,7 +65,8 @@ main(Program1,Line1,Var1,Oc1,Program2,Line2,Var2,Oc2,Function,Time) ->
 				ok;
 			_ -> 
 				unregister(cuterIn),
-				unregister(tracer)
+				unregister(tracer),
+				secer ! continue
 		end
 	end.
 main(ProgramName,Line,Var,Oc,Function,Time) ->
@@ -65,37 +77,44 @@ main(ProgramName,Line,Var,Oc,Function,Time) ->
 		ModuleName = list_to_atom(filename:basename(ProgramName,".erl")),
 		{FunName,Arity} = divide_function(Function),
 
-		% PART 1
-		{ParamClauses,TypeDicts} = analyze_types(ProgramName,FunName,Arity),
-		TimeOut = Time div 3 * 2,
-		Inputs = execute_cuter(ModuleName,FunName,ParamClauses,TypeDicts,TimeOut),
+		case Arity of
+			0 ->
+				instrument_code(ProgramName,list_to_integer(Line),Var,list_to_integer(Oc)),
+				ModTmp = list_to_atom(filename:basename(ProgramName,".erl")++"Tmp"),
+				execute_input(ModTmp,FunName,[],0);
+			_ ->
+				% PART 1
+				{ParamClauses,TypeDicts} = analyze_types(ProgramName,FunName,Arity),
+				TimeOut = Time div 3 * 2,
+				Inputs = execute_cuter(ModuleName,FunName,ParamClauses,TypeDicts,TimeOut),
 
-		% PART 2
-		instrument_code(ProgramName,list_to_integer(Line),Var,list_to_integer(Oc)),
-		
-		{ok, Fd} = file:open(?TMP_PATH++"cuter.txt", [write]),
-		Self = self(),
-		Ref = make_ref(),
-		spawn(fun() ->
-				group_leader(Fd,self()),
-				Self ! {cover_compilation(ProgramName),Ref}
-				end),
-		receive
-			{_,Ref} ->
-				file:close(Fd)
-		end,
+				% PART 2
+				instrument_code(ProgramName,list_to_integer(Line),Var,list_to_integer(Oc)),
+				
+				{ok, Fd} = file:open(?TMP_PATH++"cuter.txt", [write]),
+				Self = self(),
+				Ref = make_ref(),
+				spawn(fun() ->
+						group_leader(Fd,self()),
+						Self ! {cover_compilation(ProgramName),Ref}
+						end),
+				receive
+					{_,Ref} ->
+						file:close(Fd)
+				end,
 
-		ModTmp = list_to_atom(filename:basename(ProgramName,".erl")++"Tmp"),
-		lists:map(
-			fun(I) ->
-				catch apply(ModuleName,FunName,I),
-				Cvg = get_coverage(ModuleName),
-				{Clause,Dic} = identify_clause_input(ParamClauses,TypeDicts,I),
-				validate_input(ModuleName,FunName,I,Clause,Dic)
-				%execute_input(ModTmp,FunName,I,Cvg)
-			end,
-			Inputs),
-		gen_random_inputs(ModuleName,empty,FunName,ParamClauses,TypeDicts,0)
+				ModTmp = list_to_atom(filename:basename(ProgramName,".erl")++"Tmp"),
+				lists:map(
+					fun(I) ->
+						catch apply(ModuleName,FunName,I),
+						Cvg = get_coverage(ModuleName),
+						{Clause,Dic} = identify_clause_input(ParamClauses,TypeDicts,I),
+						validate_input(ModuleName,FunName,I,Clause,Dic)
+						%execute_input(ModTmp,FunName,I,Cvg)
+					end,
+					Inputs),
+				gen_random_inputs(ModuleName,empty,FunName,ParamClauses,TypeDicts,0)
+		end
 	catch 
 		E:R ->
 			{E,R}
@@ -114,18 +133,23 @@ analyze_types(FileName,FunName,Arity) ->
 	compile:file(ModuleName,[debug_info]),
 	{ok,Abstract} = smerl:for_file(FileName),
 	Exports = smerl:get_exports(Abstract),
+
 	case is_exported(Exports,FunName,Arity) of
 		false -> 
 			printer("The selected function is not exported"),
 			secer ! die;
 		true ->
 			FuncTypes = typer_mod:get_type_inside_erl(["--show_exported", FileName]),
-			Exp = exported(Exports,FuncTypes,[]),
-			ExportedFunctionsTypes = lists:reverse(Exp),
-			FunctionSpec = get_executed_function(ExportedFunctionsTypes,FunName,Arity),
+			[FunctionSpec] = lists:filter(
+					fun(X) -> 
+						element(1,X) == FunName 
+						andalso 
+						element(2,X) == Arity 
+					end, 
+					FuncTypes),		
 			{_Origin,InputTypes} = get_inputs(FunctionSpec),
-			
-			ParamNames = get_parameters(Abstract,FunName),
+
+			ParamNames = get_parameters(Abstract,FunName,Arity),
 			DictOfDicts = generate_all_clause_dicts(ParamNames,InputTypes),
 			{ParamNames,DictOfDicts}
 	end.
@@ -167,25 +191,12 @@ is_exported([{Name,Arity}|_],Name,Arity) -> true;
 is_exported([{_,_}|Rest],Name,Arity) ->
 	is_exported(Rest,Name,Arity).
 
-exported([],_,ExportedTypes) -> 
-	ExportedTypes;
-exported([Export | Rest], FuncTypes, ExportedTypes) -> 
-	FuncName = element(1,Export),
-	List1 = lists:filter(fun(X) -> element(1,X) == FuncName end, FuncTypes),
-	case List1 of
-		[] -> 
-			exported(Rest,FuncTypes,ExportedTypes);
-		_ -> 
-			[FuncType|_] = List1, %ONLY THE FIRST ONE
-			exported(Rest,FuncTypes,[FuncType | ExportedTypes])
-	end.
-
-get_executed_function([],_,_) -> 
-	unexporter;
-get_executed_function([{FunName,Arity,Structure,StringSpec}|_],FunName,Arity) ->
-	{FunName,Arity,Structure,StringSpec};
-get_executed_function([_|Functions],FunName,Arity) ->
-	get_executed_function(Functions,FunName,Arity).
+% get_executed_function([],_,_) -> 
+% 	unexporter;
+% get_executed_function([{FunName,Arity,Structure,StringSpec}|_],FunName,Arity) ->
+% 	{FunName,Arity,Structure,StringSpec};
+% get_executed_function([_|Functions],FunName,Arity) ->
+% 	get_executed_function(Functions,FunName,Arity).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % GET THE TYPES OF THE INPUTS FROM THE SPEC %
@@ -278,12 +289,12 @@ get_type(Type) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % GET LIST OF PARAMETERS FROM AST %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-get_parameters(AST,FunName) ->
+get_parameters(AST,FunName,Arity) ->
 	{_,_,_,_,Funs,_} = AST,
-	{function,_Line,FunName,_Arity,Clauses} = lists:foldl(
+	{function,_Line,FunName,Arity,Clauses} = lists:foldl(
 		fun (X,Acc) ->
 			case X of
-				{_,_,FunName,_,_} -> X;
+				{_,_,FunName,Arity,_} -> X;
 				_ -> Acc
 			end
 		end,
