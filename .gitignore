@@ -9,3 +9,6 @@ results/*
 tmp/*
 cuter/ebin/*
 cuter/Makefile
+cuter/config.status
+cuter/config.log
+cuter/autom4te.cache/requests
