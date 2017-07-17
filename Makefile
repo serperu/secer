@@ -7,6 +7,7 @@ compile:
 	@rm -Rf ebin
 	@mkdir ebin
 	@erlc -W0 -o ebin src/*.erl 
+	@erlc -W0 -o ebin src/dependences/*.erl 
 	@mkdir -p tmp
 	@mkdir -p results
 	@cd proper; make
@@ -17,3 +18,4 @@ clean:
 	@rm -Rf tmp
 	@rm -Rf ./cuter/ebin
 	@rm -Rf ./proper/ebin
+
