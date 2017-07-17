@@ -19,3 +19,7 @@ clean:
 	@rm -Rf ./cuter/ebin
 	@rm -Rf ./proper/ebin
 
+run:
+	./secer -f b1.erl -li 19 -var X -f b1_slice.erl -li 6 -var X -to 15
+run2:
+	./secer -f b1.erl -li 25 -var C -f b1_slice.erl -li 9 -var C -funs [numbers/2] -to 15
