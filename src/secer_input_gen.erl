@@ -1,7 +1,9 @@
 -module(secer_input_gen).
--export([main/6,main/10]).
+-export([main/6,main/10,get_exports/1]).
 
 -define(TMP_PATH,"./tmp/").
+-define(INPUT_LIMIT,10000).
+-define(CUTER_TIMEOUT,20).
 
 main(Program1,Line1,Var1,Oc1,Program2,Line2,Var2,Oc2,Function,Time) ->
 	try 
@@ -128,12 +130,92 @@ main(ProgramName,Line,Var,Oc,Function,Time) ->
 		end
 	end.
 
+%%%%% PARA LA MAGIC TOOL %%%%%
+
+magicToolMain(ProgramName,Line,Var,Oc) ->
+	ExportedFuns = get_exports(ProgramName),
+	[magicToolMain(ProgramName,Line,Var,Oc,Function)|| Function <- ExportedFuns].
+
+magicToolMain(ProgramName,Line,Var,Oc,Function) ->
+	try 
+		register(cuterIn,spawn(secer_trace,init,[])),
+
+		ModuleName = list_to_atom(filename:basename(ProgramName,".erl")),
+		{FunName,Arity} = divide_function(Function),
+
+		case Arity of
+			0 ->
+				instrument_code(ProgramName,list_to_integer(Line),Var,list_to_integer(Oc)),
+				ModTmp = list_to_atom(filename:basename(ProgramName,".erl")++"Tmp"),
+				execute_input(ModTmp,FunName,[],0);
+			_ ->
+				% PART 1
+				{ParamClauses,TypeDicts} = analyze_types(ProgramName,FunName,Arity),
+				Inputs = execute_cuter(ModuleName,FunName,ParamClauses,TypeDicts,?CUTER_TIMEOUT),
+
+				% PART 2
+				instrument_code(ProgramName,list_to_integer(Line),Var,list_to_integer(Oc)),
+				
+				{ok, Fd} = file:open(?TMP_PATH++"cuter.txt", [write]),
+				Self = self(),
+				Ref = make_ref(),
+				spawn(fun() ->
+						group_leader(Fd,self()),
+						Self ! {cover_compilation(ProgramName),Ref}
+						end),
+				receive
+					{_,Ref} ->
+						file:close(Fd)
+				end,
+
+				ModTmp = list_to_atom(filename:basename(ProgramName,".erl")++"Tmp"),
+				lists:map(
+					fun(I) ->
+						catch apply(ModuleName,FunName,I)
+					end,
+					Inputs),
+				gen_inputs_until_max_coverage(ModuleName,FunName,Inputs,ParamClauses,TypeDicts,length(Inputs))
+		end
+	catch 
+		E:R ->
+			{E,R}
+	after
+		case whereis(cuterIn) of
+			undefined -> 
+				ok;
+			_ -> 
+				unregister(cuterIn)
+		end
+	end.
+
+gen_inputs_until_max_coverage(_,_,Inputs,_,_,?INPUT_LIMIT) ->
+	Inputs;
+gen_inputs_until_max_coverage(ModuleName,FunName,Inputs,ParamClauses,TypeDicts,N) ->
+	Cvg = get_coverage(ModuleName),
+	case Cvg of
+		1.0 ->
+			Inputs;
+		_ ->
+			Params = lists:nth(rand:uniform(length(ParamClauses)),ParamClauses),
+			{ok,Dic} = dict:find(Params,TypeDicts),	
+
+			Input = (catch generate_instance({Dic,Params})),
+			case lists:member(Input,Inputs) of
+				true -> 
+					gen_inputs_until_max_coverage(ModuleName,FunName,Inputs,ParamClauses,TypeDicts,N);
+				false ->
+					catch apply(ModuleName,FunName,Input),
+					gen_inputs_until_max_coverage(ModuleName,FunName,[Input|Inputs],ParamClauses,TypeDicts,N+1)
+			end
+	end.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 analyze_types(FileName,FunName,Arity) ->
 	ModuleName = list_to_atom(filename:basename(FileName,".erl")),
 	compile:file(ModuleName,[debug_info]),
 	{ok,Abstract} = smerl:for_file(FileName),
 	Exports = smerl:get_exports(Abstract),
-
 	case is_exported(Exports,FunName,Arity) of
 		false -> 
 			printer("The selected function is not exported"),
@@ -190,6 +272,15 @@ is_exported([],_,_) -> false;
 is_exported([{Name,Arity}|_],Name,Arity) -> true;
 is_exported([{_,_}|Rest],Name,Arity) ->
 	is_exported(Rest,Name,Arity).
+
+get_exports(FileName) ->
+	{ok,Abstract} = smerl:for_file(FileName),
+	Exports = smerl:get_exports(Abstract),
+	lists:map(
+			fun({N,A}) ->
+				atom_to_list(N)++"/"++integer_to_list(A)
+			end,
+			Exports).
 
 % get_executed_function([],_,_) -> 
 % 	unexporter;
@@ -740,7 +831,7 @@ increment_integer_types(Dic) ->
 		end, 
 		Dic).
 
-identify_clause_input([Clause],Dicts,Input) ->
+identify_clause_input([Clause],Dicts,_) ->
 	{ok,Dict} = dict:find(Clause,Dicts),
 	{Clause,Dict};
 identify_clause_input([Clause|Clauses],Dicts,Input) ->

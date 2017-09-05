@@ -39,6 +39,35 @@ main([
 		"-f", File1, 
 		"-li", Line1, 
 		"-var", Var1,
+		"-oc", Oc1,
+		"-f", File2,
+		"-li", Line2,
+		"-var", Var2,
+		"-oc", Oc2,
+		"-to", Time
+	]) -> 
+
+		Res = try  
+			list_to_integer(Line1), 
+			list_to_integer(Line2),
+			list_to_integer(Oc1),
+			list_to_integer(Oc2),
+			list_to_integer(Time)
+		catch 
+			_:_ -> 
+				{-1, -1}
+		end,
+		case Res of 
+			{-1, -1} -> 
+				usage(1);
+			_ -> 
+				InputFuns = secer_input_gen:get_exports(File1),
+				[secer:run([File1,Line1,Var1,Oc1,File2,Line2,Var2,Oc2,IFun,Time])|| IFun<- InputFuns]
+		end;
+main([
+		"-f", File1, 
+		"-li", Line1, 
+		"-var", Var1,
 		"-f", File2,
 		"-li", Line2,
 		"-var", Var2,
@@ -61,6 +90,32 @@ main([
 			_ -> 
 				[secer:run([File1,Line1,Var1,"1",File2,Line2,Var2,"1",IFun,Time])|| IFun<- InputFuns]
 		end;
+main([
+		"-f", File1, 
+		"-li", Line1, 
+		"-var", Var1,
+		"-f", File2,
+		"-li", Line2,
+		"-var", Var2,
+		"-to", Time
+	]) -> 
+
+		Res = try  
+			list_to_integer(Line1), 
+			list_to_integer(Line2),
+			list_to_integer(Time)
+		catch 
+			_:_ -> 
+				{-1, -1}
+		end,
+		case Res of 
+			{-1, -1} -> 
+				usage(1);
+			_ -> 
+				InputFuns = secer_input_gen:get_exports(File1),
+				[secer:run([File1,Line1,Var1,"1",File2,Line2,Var2,"1",IFun,Time])|| IFun<- InputFuns]
+		end;
+
 main([
 		"-f", File1, 
 		"-li", Line1, 
@@ -93,6 +148,33 @@ main([
 		"-f", File1, 
 		"-li", Line1, 
 		"-var", Var1,
+		"-f", File2,
+		"-li", Line2,
+		"-var", Var2,
+		"-oc", Oc2,
+		"-to", Time
+	]) -> 
+
+		Res = try  
+			list_to_integer(Line1), 
+			list_to_integer(Line2),
+			list_to_integer(Oc2),
+			list_to_integer(Time)
+		catch 
+			_:_ -> 
+				{-1, -1}
+		end,
+		case Res of 
+			{-1, -1} -> 
+				usage(1);
+			_ -> 
+				InputFuns = secer_input_gen:get_exports(File1),
+				[secer:run([File1,Line1,Var1,"1",File2,Line2,Var2,Oc2,IFun,Time])|| IFun<- InputFuns]
+		end;
+main([
+		"-f", File1, 
+		"-li", Line1, 
+		"-var", Var1,
 		"-oc", Oc1,
 		"-f", File2,
 		"-li", Line2,
@@ -115,6 +197,32 @@ main([
 			{-1, -1} -> 
 				usage(1);
 			_ -> 
+				[secer:run([File1,Line1,Var1,Oc1,File2,Line2,Var2,"1",IFun,Time])|| IFun<- InputFuns]
+		end;
+main([
+		"-f", File1, 
+		"-li", Line1, 
+		"-var", Var1,
+		"-oc", Oc1,
+		"-f", File2,
+		"-li", Line2,
+		"-var", Var2,
+		"-to", Time
+	]) -> 
+		Res = try  
+			list_to_integer(Line1), 
+			list_to_integer(Line2),
+			list_to_integer(Oc1),
+			list_to_integer(Time)
+		catch 
+			_:_ -> 
+				{-1, -1}
+		end,
+		case Res of 
+			{-1, -1} -> 
+				usage(1);
+			_ -> 
+				InputFuns = secer_input_gen:get_exports(File1),
 				[secer:run([File1,Line1,Var1,Oc1,File2,Line2,Var2,"1",IFun,Time])|| IFun<- InputFuns]
 		end;
 main([
@@ -145,6 +253,28 @@ main([
 		"-f", File, 
 		"-li", Line, 
 		"-var", Var,
+		"-oc", Oc,
+		"-to", Time
+	]) -> 
+		Res = try  
+			list_to_integer(Line), 
+			list_to_integer(Oc),
+			list_to_integer(Time)
+		catch 
+			_:_ -> 
+				{-1, -1}
+		end,
+		case Res of 
+			{-1, -1} -> 
+				usage(2);
+			_ -> 
+				InputFuns = secer_input_gen:get_exports(File),
+				[secer:run([File,Line,Var,Oc,IFun,Time])|| IFun<- InputFuns]
+		end;
+main([
+		"-f", File, 
+		"-li", Line, 
+		"-var", Var,
 		"-funs", Fun,
 		"-to", Time
 	]) -> 
@@ -163,6 +293,26 @@ main([
 			_ -> 
 				[secer:run([File,Line,Var,"1",IFun,Time])|| IFun<- InputFuns]
 		end;
+main([
+		"-f", File, 
+		"-li", Line, 
+		"-var", Var,
+		"-to", Time
+	]) -> 
+		Res = try  
+			list_to_integer(Line), 
+			list_to_integer(Time)
+		catch 
+			_:_ -> 
+				{-1, -1}
+		end,
+		case Res of 
+			{-1, -1} -> 
+				usage(2);
+			_ -> 
+				InputFuns = secer_input_gen:get_exports(File),
+				[secer:run([File,Line,Var,"1",IFun,Time])|| IFun<- InputFuns]
+		end;
 main(_) ->
     usage(1).
 
@@ -172,14 +322,14 @@ usage(1) ->
              -funs input_function -to timeout\n"),
     halt(1);
 usage(2) ->
-	io:format("Usage: secer -f file.erl -li line -var variable [-oc occurrence] -funs input_function -to timeout\n"),
+	io:format("Usage: secer -f file.erl -li line -var variable [-oc occurrence] [-funs input_functions] -to timeout\n"),
 	halt(1).
 
 help_message() ->
 	"
   Usage: secer [--help] -f file -li line -var variable [-oc occurrence] 
                        [-f file -li line -var variable [-oc occurrence]]
-                        -funs input_function* -to timeout
+                       [-funs input_function*] -to timeout
 
   Options:
     -f file.erl
@@ -200,7 +350,7 @@ help_message() ->
             that are being called to test the value of the 
             interest point. Each function/arity expend
             the stablished timeout to calculate its own 
-            set of tests
+            set of tests (all exported functions by default)
     -to timeout
             indicate the time that the user want to 
             wait for the execution of secer in seconds
