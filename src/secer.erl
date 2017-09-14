@@ -34,16 +34,16 @@ run([File1,Line1,Var1,Oc1,File2,Line2,Var2,Oc2,Fun,Time]) ->
 					0 ->
 						io:format("Function: ~s/~s\n",[FunName,Arity]),
 						io:format("~s\n",["----------------------------"]),
-						io:format("Generated tests: ~p\n",[dict:size(Same)]),
+						io:format("Generated test cases: ~p\n",[dict:size(Same)]),
 						io:format("Both versions of the program generate identical traces for the point of interest\n"),
 						io:format("~s\n",["----------------------------"]);
 					X ->
 						SameTests = dict:size(Same),
 						io:format("Function: ~s/~s\n",[FunName,Arity]),
 						io:format("~s\n",["----------------------------"]),
-						io:format("Generated tests: ~p\n",[SameTests+X]),
+						io:format("Generated test cases: ~p\n",[SameTests+X]),
 						Percentage = trunc((X/(SameTests+X))*10000)/100,
-						io:format("Mismatching tests: ~p (~p%)\n",[X,Percentage]),
+						io:format("Mismatching test cases: ~p (~p%)\n",[X,Percentage]),
 						io:format("All mismatching results were saved at: ./results/~s.txt\n",[FunName++"_"++Arity]),
 						{ErrorInput,{TraceP1,TraceP2}} = (catch dict:map(fun(K,V) -> throw({K,V}) end, Different)),
 						
@@ -64,8 +64,8 @@ run([File1,Line1,Var1,Oc1,File2,Line2,Var2,Oc2,Fun,Time]) ->
 						io:format("Call: ~s(~s)\n",[FunName,FinalInput]),
 						ModuleName1 = list_to_atom(filename:basename(File1,".erl")),
 						ModuleName2 = list_to_atom(filename:basename(File2,".erl")),
-						io:format("~p Trace (~s,~s,~s): ~p\n",[ModuleName1,Line1,Var1,Oc1,TraceP1]),
-						io:format("~p Trace (~s,~s,~s): ~p\n",[ModuleName2,Line2,Var2,Oc2,TraceP2]),
+						io:format("~p trace (~s,~s,~s): ~p\n",[ModuleName1,Line1,Var1,Oc1,TraceP1]),
+						io:format("~p trace (~s,~s,~s): ~p\n",[ModuleName2,Line2,Var2,Oc2,TraceP2]),
 						io:format("~s\n",["----------------------------"])
 				end,
 
@@ -154,7 +154,7 @@ run([File,Line,Var,Oc,Fun,Time]) ->
 				SizeValue = dict:size(Valued),
 				io:format("Function: ~s/~s\n",[FunName,Arity]),
 				io:format("~s\n",["----------------------------"]),
-				io:format("Generated tests: ~p\n",[SizeEmpty+SizeValue]),
+				io:format("Generated test cases: ~p\n",[SizeEmpty+SizeValue]),
 				case dict:size(Empty) of
 					0 ->
 						ok;

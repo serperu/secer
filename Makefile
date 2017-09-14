@@ -10,8 +10,8 @@ compile:
 	@erlc -W0 -o ebin src/dependences/*.erl 
 	@mkdir -p tmp
 	@mkdir -p results
-	@cd proper; make
-	@cd cuter; autoconf; ./configure; make depend; make
+#	@cd proper; make
+#	@cd cuter; autoconf; ./configure; make depend; make
 
 clean:
 	@rm -Rf ebin
