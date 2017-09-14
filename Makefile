@@ -4,15 +4,16 @@ ERLC_PATH = $(shell dirname $(lastword $(ERLC_DIR)))
 
 compile:
 	@chmod +x secer
+	@cd cuter; ./fetch_protoc.sh; git submodule init && git submodule update; git submodule foreach make; autoconf; ./configure --with-protoc=$(ROOT_DIR)/cuter/lib/protoc-3.2.0/bin/protoc; make depend; make
+	@make secer
+
+secer:
 	@rm -Rf ebin
 	@mkdir ebin
 	@erlc -W0 -o ebin src/*.erl 
 	@erlc -W0 -o ebin src/dependences/*.erl 
 	@mkdir -p tmp
 	@mkdir -p results
-#	@cd proper; make
-#	@cd cuter; autoconf; ./configure; make depend; make
-
 clean:
 	@rm -Rf ebin
 	@rm -Rf tmp
