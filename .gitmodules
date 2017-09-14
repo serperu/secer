@@ -1,0 +1,3 @@
+[submodule "cuter"]
+	path = cuter
+	url = https://github.com/serperu/cuter.git
