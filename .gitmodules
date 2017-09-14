@@ -2,3 +2,6 @@
 	path = proper
 	url = https://github.com/manopapad/proper.git
 	ignore = dirty
+[submodule "cuter"]
+	path = cuter
+	url = https://github.com/serperu/cuter.git
