@@ -15,7 +15,7 @@ Installation
 SecEr makes use of the Erlang modules and tools [TypEr](https://github.com/erlang/typer), [PropEr](https://github.com/manopapad/proper), and [CutEr](https://github.com/aggelgian/cuter), so there are some prerequisites to use it.
 In order to perform a correct execution of the tool, all [CutEr](https://github.com/aggelgian/cuter) dependencies need to be fulfiled ([CutEr dependencies](https://github.com/aggelgian/cuter/blob/master/README.md)). 
 
-	$ git clone https://github.com/serperu/secer.git
+	$ git clone --recursive https://github.com/serperu/secer.git
 	$ cd secer/
 	$ make 
 
