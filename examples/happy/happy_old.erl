@@ -1,4 +1,4 @@
--module(example0).
+-module(happy_old).
 -export([main/2]).
 
 -spec main(pos_integer(),pos_integer()) -> [pos_integer()].

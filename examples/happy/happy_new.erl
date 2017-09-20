@@ -1,4 +1,4 @@
--module(example1).
+-module(happy_new).
 -export([main/2]).
 -import(lists, [map/2, member/2, sort/1, sum/1]).
 is_happy(X, XS) ->

@@ -2,14 +2,17 @@
 -export([get_replaced_AST/4]).
 -define(TMP_PATH,"./tmp/").
 
+
 get_replaced_AST(FileI,Line,Var,Occurrence) -> 
+	%POIs = get_poi(FileI,Line,Var,Occurrence),
+
 	ModuleName = filename:basename(FileI,".erl"),
 	{ok,AST_code} = epp:parse_file(FileI,[],[]),
-	%AST_code = get_temp_AST(FileI,Line,Var,Occurrence),
 	AtomVar = list_to_atom(Var),
 	Final_AST = instrument_AST(AST_code,FileI,Line,AtomVar,Occurrence),
 	{ok,Final_file} = file:open(?TMP_PATH++ModuleName++"Tmp.erl",[write]),
 	generate_final_code(Final_AST,Final_file),
+
 	compile:file(?TMP_PATH++ModuleName++"Tmp.erl",[{outdir,?TMP_PATH}]),
 	code:purge(list_to_atom(ModuleName++"Tmp")),
 	code:load_abs(?TMP_PATH++ModuleName++"Tmp").
