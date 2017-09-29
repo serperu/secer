@@ -8,6 +8,10 @@
 
 		same_trace = dict:new(),
 		different_trace = dict:new(),
+
+		relations,
+		id_poi_dic,
+		compare_fun = undef,
 		cvg = 0
 	}).
 
@@ -16,8 +20,21 @@ init() ->
 
 loop(State) ->
 	receive
+		{set_rels,Relations,Dic} ->
+			NewState = State#state
+			{
+				relations = Relations,
+				id_poi_dic = Dic
+			},
+			loop(NewState);
+		{set_fun,F} ->
+			NewState = State#state
+			{
+				compare_fun = F
+			},
+			loop(NewState);
 		{contained,Input,Pid} ->
-			case {dict:is_key(Input,State#state.empty_trace),dict:is_key(Input,State#state.valued_trace)} of
+			case {dict:is_key(Input,State#state.same_trace),dict:is_key(Input,State#state.different_trace)} of
 				{false,false} ->
 					Pid ! false;
 				_ -> 
@@ -25,18 +42,23 @@ loop(State) ->
 			end,
 			loop(State);
 		{existing_trace,Trace,Pid} ->
-			Exists = dict:fold(
-				fun (_,V,Acc) ->
-					case Acc of
-						false ->
-							V == Trace;
-						true ->
-							true
-					end
-				end,
-				false,
-				State#state.valued_trace),
-			Pid ! Exists,
+			case Trace of
+				[] ->
+					Pid ! true;
+				_ ->
+					Exists = dict:fold(
+						fun (_,V,Acc) ->
+							case Acc of
+								false ->
+									V == Trace;
+								true ->
+									true
+							end
+						end,
+						false,
+						State#state.valued_trace),
+					Pid ! Exists
+			end,
 			loop(State);
 		{add,Input,Trace,Cvg} ->
 			NewState = case Trace of
@@ -62,58 +84,49 @@ loop(State) ->
 					}
 			end,
 			loop(NewState);
-		{add,Input,Trace,Trace,Cvg} -> 
-		 	NewState = case Trace of
-				[] ->
-					State#state
-					{
-						empty_trace =
-							dict:store(
-								Input,
-								Trace,
-								State#state.empty_trace),
-						same_trace = 
-							dict:store(
-								Input,
-								Trace,
-								State#state.same_trace),
-						cvg = Cvg
-					};
-				_ ->
-					State#state
-					{
-						valued_trace =
-							dict:store(
-								Input,
-								Trace,
-								State#state.valued_trace),
-						same_trace = 
-							dict:store(
-								Input,
-								Trace,
-								State#state.same_trace),
-						cvg = Cvg
-					}
-			end,
+		{add,Input,Trace1,Trace2,independent} ->
+			NewState = trace_division(Input,Trace1,Trace2,State),
 			loop(NewState);
-		{add,Input,Trace1,Trace2,Cvg} -> 
-		 	NewState = case Trace1 of
-				[] ->
-					State#state
-					{
-						empty_trace =
-							dict:store(
-								Input,
-								Trace1,
-								State#state.empty_trace),
-						different_trace = 
-							dict:store(
-								Input,
-								{Trace1,Trace2},
-								State#state.different_trace),
-						cvg = Cvg
-					};
-				_ ->
+		{add,Input,Trace1,Trace2,_} -> 
+			CompareRes = case State#state.compare_fun of
+				undef ->
+			 		compare_default(Trace1,Trace2,State,fun equality/3);
+			 	F ->
+			 		compare_user(Trace1,Trace2,State,F)
+			end,
+			NewState = case CompareRes of
+				true ->
+					case Trace1 of
+						[] ->
+							State#state
+							{
+								empty_trace =
+									dict:store(
+										Input,
+										Trace1,
+										State#state.empty_trace),
+								same_trace = 
+									dict:store(
+										Input,
+										{Trace1,Trace2},
+										State#state.same_trace)
+							};
+						_ ->
+							State#state
+							{
+								valued_trace =
+									dict:store(
+										Input,
+										Trace1,
+										State#state.valued_trace),
+								same_trace = 
+									dict:store(
+										Input,
+										{Trace1,Trace2},
+										State#state.same_trace)
+							}
+					end;
+				{error_no_relation,P1,P2} ->
 					State#state
 					{
 						valued_trace =
@@ -124,17 +137,75 @@ loop(State) ->
 						different_trace = 
 							dict:store(
 								Input,
-								{Trace1,Trace2},
-								State#state.different_trace),
-						cvg = Cvg
-					}
+								{Trace1,Trace2,"Unexpected trace order",P1,P2},
+								State#state.different_trace)
+					};
+				{error_no_value,P1,P2} ->
+					State#state
+					{
+						valued_trace =
+							dict:store(
+								Input,
+								Trace1,
+								State#state.valued_trace),
+						different_trace = 
+							dict:store(
+								Input,
+								{Trace1,Trace2,"Unexpected trace value",P1,P2},
+								State#state.different_trace)
+					};
+				{error,P1,P2} ->
+					State#state
+					{
+						valued_trace =
+							dict:store(
+								Input,
+								Trace1,
+								State#state.valued_trace),
+						different_trace = 
+							dict:store(
+								Input,
+								{Trace1,Trace2,"Error found",P1,P2},
+								State#state.different_trace)
+					};
+				{false,Msg,P1,P2} ->
+					State#state
+					{
+						valued_trace =
+							dict:store(
+								Input,
+								Trace1,
+								State#state.valued_trace),
+						different_trace = 
+							dict:store(
+								Input,
+								{Trace1,Trace2,Msg,P1,P2},
+								State#state.different_trace)
+					};
+				{different_length_trace,P1,P2} ->
+					State#state
+					{
+						valued_trace =
+							dict:store(
+								Input,
+								Trace1,
+								State#state.valued_trace),
+						different_trace = 
+							dict:store(
+								Input,
+								{Trace1,Trace2,"The length of both traces differs",P1,P2},
+								State#state.different_trace)
+					};
+				_ ->
+					printer("Unexpected error"),
+					exit("Unexpected message")
 			end,
 			loop(NewState);
 		{get_results,Pid} ->
 			{Empty,Valued,Same,Different,Cvg} = 
 				{State#state.empty_trace, State#state.valued_trace,
 					State#state.same_trace,State#state.different_trace,State#state.cvg},
-			Pid ! {Empty,Valued,Same,Different,Cvg};
+			Pid ! {Empty,Valued,Same,Different,Cvg,State#state.id_poi_dic};
 
 		Other ->
 			erlang:exit(
@@ -144,3 +215,265 @@ loop(State) ->
 					{"Title: Error option.~n", Other}
 				})
 	end.
+
+compare_default([],[],_,_) -> true;
+compare_default([],[{Id2,Value2}|Trace2],S,F) -> 
+	{ok,POI2} = dict:find(Id2,S#state.id_poi_dic),
+	case F({null,[]},{POI2,Value2},S#state.relations) of
+		true ->
+			compare_default([],Trace2,S,F);
+		Error ->
+			Error
+	end;
+compare_default([{Id1,Value1}|Trace1],[],S,F) -> 
+	{ok,POI1} = dict:find(Id1,S#state.id_poi_dic),
+	case F({POI1,Value1},{null,[]},S#state.relations) of
+		true ->
+			compare_default(Trace1,[],S,F);
+		Error ->
+			Error
+	end;
+compare_default([{Id1,Value1}|Trace1],[{Id2,Value2}|Trace2],S,F) ->
+	{ok,POI1} = dict:find(Id1,S#state.id_poi_dic),
+	{ok,POI2} = dict:find(Id2,S#state.id_poi_dic),
+	case F({POI1,Value1},{POI2,Value2},S#state.relations) of
+		true ->
+			compare_default(Trace1,Trace2,S,F);
+		Error ->
+			Error
+	end.
+
+compare_user([],[],_,_) -> true;
+compare_user([],[{Id2,Value2}|Trace2],S,F) ->
+	{ok,POI2} = dict:find(Id2,S#state.id_poi_dic),
+	
+	case F([],{POI2,Value2}) of
+		true ->
+			compare_user([],Trace2,S,F);
+		false ->
+			{error,empty_trace,POI2};
+		Error ->
+			Error
+	end;
+compare_user([{Id1,Value1}|Trace1],[],S,F) ->
+	{ok,POI1} = dict:find(Id1,S#state.id_poi_dic),
+	
+	case F({POI1,Value1},[]) of
+		true ->
+			compare_user(Trace1,[],S,F);
+		false ->
+			{error,POI1,empty_trace};
+		Error ->
+			Error
+	end;
+compare_user([{Id1,Value1}|Trace1],[{Id2,Value2}|Trace2],S,F) ->
+	{ok,POI1} = dict:find(Id1,S#state.id_poi_dic),
+	{ok,POI2} = dict:find(Id2,S#state.id_poi_dic),
+	
+	case F({POI1,Value1},{POI2,Value2}) of
+		true ->
+			compare_user(Trace1,Trace2,S,F);
+		false ->
+			{error,POI1,POI2};
+		{false,ErrorMsg} ->
+			{false,ErrorMsg,POI1,POI2}
+	end.
+
+equality({null,_},{POI2,_},_) ->
+	{different_length_trace,empty_trace,POI2};
+equality({POI1,_},{null,_},_) ->
+	{different_length_trace,POI1,empty_trace};
+equality({POI1,Val1},{POI2,Val2},Rels) ->
+	case lists:member({POI1,POI2},Rels) of 
+		true ->
+			case Val1 == Val2 of
+				true ->
+					true;
+				false ->
+					{error_no_value,POI1,POI2}
+			end;
+		_ ->
+			{error_no_relation,POI1,POI2}
+	end.
+
+trace_division(Input,T1,T2,S) ->
+	Rels = S#state.relations,
+	OldPois = lists:foldr(
+					fun({E,_},Acc) ->
+						case lists:member(E,Acc) of
+							true ->
+								Acc;
+							false ->
+								[E|Acc]
+						end
+					end,
+					[],
+					Rels),
+	% printer("Oldpois"),
+	% printer(OldPois),
+	% printer("Trace1"),
+	% printer(T1),
+	% printer("Trace2"),
+	% printer(T2),
+	% io:get_line(""),
+	TransformedTraces = [identify_trace(T1,T2,PoiOld,S,Rels,[],[]) || PoiOld <- OldPois],
+	% printer("I"),
+	% printer(Input),
+	% printer("T"),
+	% printer(TransformedTraces),
+	% io:get_line("STOP"),
+	lists:foldl(
+		fun({Trace1,Trace2},State) -> 
+			CompareRes = case State#state.compare_fun of
+			undef ->
+		 		compare_default(Trace1,Trace2,State,fun equality/3);
+		 	F ->
+		 		compare_user(Trace1,Trace2,State,F)
+			end,
+
+			case CompareRes of
+				true ->
+					case dict:find(Input,State#state.same_trace) of
+						{ok,Val} ->
+							State#state
+							{
+								same_trace = 
+									dict:store(
+										Input,
+										[Val]++[{Trace1,Trace2}],
+										State#state.same_trace)
+							};
+						error ->
+							State#state
+							{
+								same_trace = 
+									dict:store(
+										Input,
+										{Trace1,Trace2},
+										State#state.same_trace)
+							}
+					end;
+				{error_no_value,P1,P2} ->
+					case dict:find(Input,State#state.different_trace) of
+						{ok,Val} ->
+							State#state
+							{
+								different_trace = 
+									dict:store(
+										Input,
+										[Val]++[{Trace1,Trace2,"Unexpected trace value",P1,P2}],
+										State#state.different_trace)
+							};
+						error ->
+							State#state
+							{
+								different_trace = 
+									dict:store(
+										Input,
+										{Trace1,Trace2,"Unexpected trace value",P1,P2},
+										State#state.different_trace)
+							}
+					end;
+				{error,P1,P2} ->
+					case dict:find(Input,State#state.different_trace) of
+						{ok,Val} ->
+							State#state
+							{
+								different_trace = 
+									dict:store(
+										Input,
+										[Val]++[{Trace1,Trace2,"Error found",P1,P2}],
+										State#state.different_trace)
+							};
+						error ->
+							State#state
+							{
+								different_trace = 
+									dict:store(
+										Input,
+										{Trace1,Trace2,"Error found",P1,P2},
+										State#state.different_trace)
+							}
+					end;
+				{false,Msg} ->
+					case dict:find(Input,State#state.different_trace) of
+						{ok,Val} ->
+							State#state
+							{
+								different_trace = 
+									dict:store(
+										Input,
+										[Val]++[{Trace1,Trace2,Msg}],
+										State#state.different_trace)
+							};
+						error ->
+							State#state
+							{
+								different_trace = 
+									dict:store(
+										Input,
+										{Trace1,Trace2,Msg},
+										State#state.different_trace)
+							}
+					end;
+				{different_length_trace,P1,P2} ->
+					case dict:find(Input,State#state.different_trace) of
+						{ok,Val} ->
+							State#state
+							{
+								different_trace = 
+									dict:store(
+										Input,
+										[Val]++[{Trace1,Trace2,"The length of both traces differs",P1,P2}],
+										State#state.different_trace)
+							};
+						error ->
+							State#state
+							{
+								different_trace = 
+									dict:store(
+										Input,
+										{Trace1,Trace2,"The length of both traces differs",P1,P2},
+										State#state.different_trace)
+							}
+					end;
+				_ ->
+					exit("Unexpected message")
+			end
+		end,
+		S,
+		TransformedTraces).
+		
+identify_trace([],[],_,_,_,T1Rel,T2Rel) -> {lists:reverse(T1Rel),lists:reverse(T2Rel)};
+identify_trace([{Id1,Val1}|T1],[],Poi,S,Rels,T1Rel,T2Rel) -> 
+	{ok,POI1} = dict:find(Id1,S#state.id_poi_dic),
+	case POI1 of
+		Poi ->
+			identify_trace(T1,[],Poi,S,Rels,[{Id1,Val1}|T1Rel],T2Rel);
+		_ ->
+			identify_trace(T1,[],Poi,S,Rels,T1Rel,T2Rel)
+	end;
+identify_trace([],[{Id2,Val2}|T2],Poi,S,Rels,T1Rel,T2Rel) -> 
+	{ok,POI2} = dict:find(Id2,S#state.id_poi_dic),
+	case lists:member({Poi,POI2},Rels) of
+		true ->
+			identify_trace([],T2,Poi,S,Rels,T1Rel,[{Id2,Val2}|T2Rel]);
+		false ->
+			identify_trace([],T2,Poi,S,Rels,T1Rel,T2Rel)
+	end;
+identify_trace([{Id1,Val1}|T1],[{Id2,Val2}|T2],Poi,S,Rels,T1Rel,T2Rel) ->
+	{ok,POI1} = dict:find(Id1,S#state.id_poi_dic),
+	case POI1 of
+		Poi -> 
+			{ok,POI2} = dict:find(Id2,S#state.id_poi_dic),
+			case lists:member({Poi,POI2},Rels) of
+				true ->
+					identify_trace(T1,T2,Poi,S,Rels,[{Id1,Val1}|T1Rel],[{Id2,Val2}|T2Rel]);
+				false ->
+					identify_trace([{Id1,Val1}|T1],T2,Poi,S,Rels,T1Rel,T2Rel)		
+			end;
+		_ ->
+			identify_trace(T1,[{Id2,Val2}|T2],Poi,S,Rels,T1Rel,T2Rel)
+	end.
+
+printer(Node) -> io:format("~p\n",[Node]).

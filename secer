@@ -5,6 +5,155 @@
 main([X]) when X == "-h" orelse X == "--help" ->
 	io:format("~s\n",[help_message()]);
 
+main(["-pois", Pois, "-funs", FunList, "-to", Time, "-cfun", CFun]) ->
+	PoisFun = Pois++".",
+
+	case lists:member($:,Pois) of
+		true ->
+			[Module | _] = string:tokens(Pois,":"),
+			compile:file(Module++".erl",[]),
+			code:purge(list_to_atom(Module)),
+		 	code:load_abs(Module);
+		false ->
+			ok
+	end,
+
+	{ok,PoiTokens,_} = erl_scan:string(PoisFun),
+	{ok,PoiAbsForm} = erl_parse:parse_exprs(PoiTokens),
+	{value,PoisRels,_} = erl_eval:exprs(PoiAbsForm,[]),
+
+	FunctionFuns = case lists:member($:,FunList) of
+		true ->
+			{ok,FunTokens,_} = erl_scan:string(FunList++"."),
+			{ok,FunAbsForm} = erl_parse:parse_exprs(FunTokens),
+			{value,Funs,_} = erl_eval:exprs(FunAbsForm,[]),
+			Funs;
+		false ->
+			FunList
+	end,
+	InputFuns = string:tokens(FunctionFuns,",[]"),
+
+	{ok,CFunTokens,_} = erl_scan:string("fun "++CFun++"."),
+	{ok,CFunAbsForm} = erl_parse:parse_exprs(CFunTokens),
+	{value,CompareFun,_} = erl_eval:exprs(CFunAbsForm,[]),
+
+	Timeout = try  
+			list_to_integer(Time)
+		catch 
+			_:_ -> 
+				{-1, -1}
+		end,
+	case Timeout of 
+		{-1, -1} -> 
+			usage(1);
+		_ -> 
+			[secer:run(PoisRels,IFun,Timeout,sequential,CompareFun)|| IFun<- InputFuns]
+			%[secer:run(PoisRels,IFun,Timeout,independent,CompareFun)|| IFun<- InputFuns]
+			%[secer:run(PoisRels,IFun,Timeout,empty)|| IFun<- InputFuns]
+	end;
+
+main(["-pois", Pois, "-funs", FunList, "-to", Time]) ->
+	PoisFun = Pois++".",
+
+	case lists:member($:,Pois) of
+		true ->
+			[Module | _] = string:tokens(Pois,":"),
+			compile:file(Module++".erl",[]),
+			code:purge(list_to_atom(Module)),
+		 	code:load_abs(Module);
+		false ->
+			ok
+	end,
+
+	{ok,PoiTokens,_} = erl_scan:string(PoisFun),
+	{ok,PoiAbsForm} = erl_parse:parse_exprs(PoiTokens),
+	{value,PoisRels,_} = erl_eval:exprs(PoiAbsForm,[]),
+
+	FunctionFuns = case lists:member($:,FunList) of
+		true ->
+			{ok,FunTokens,_} = erl_scan:string(FunList++"."),
+			{ok,FunAbsForm} = erl_parse:parse_exprs(FunTokens),
+			{value,Funs,_} = erl_eval:exprs(FunAbsForm,[]),
+			Funs;
+		false ->
+			FunList
+	end,
+	InputFuns = string:tokens(FunctionFuns,",[]"),
+
+	Timeout = try  
+			list_to_integer(Time)
+		catch 
+			_:_ -> 
+				{-1, -1}
+		end,
+	case Timeout of 
+		{-1, -1} -> 
+			usage(1);
+		_ -> 
+			[secer:run(PoisRels,IFun,Timeout,sequential,empty)|| IFun<- InputFuns]
+			%[secer:run(PoisRels,IFun,Timeout,independent,empty)|| IFun<- InputFuns]
+			%[secer:run(PoisRels,IFun,Timeout,empty)|| IFun<- InputFuns]
+	end;
+
+main(["-pois", Pois, "-funs", FunList, "-to", Time, Flag]) ->
+	PoisFun = Pois++".",
+
+	case lists:member($:,Pois) of
+		true ->
+			[Module | _] = string:tokens(Pois,":"),
+			compile:file(Module++".erl",[]),
+			code:purge(list_to_atom(Module)),
+		 	code:load_abs(Module);
+		false ->
+			ok
+	end,
+
+	{ok,PoiTokens,_} = erl_scan:string(PoisFun),
+	{ok,PoiAbsForm} = erl_parse:parse_exprs(PoiTokens),
+	{value,PoisRels,_} = erl_eval:exprs(PoiAbsForm,[]),
+
+	FunctionFuns = case lists:member($:,FunList) of
+		true ->
+			{ok,FunTokens,_} = erl_scan:string(FunList++"."),
+			{ok,FunAbsForm} = erl_parse:parse_exprs(FunTokens),
+			{value,Funs,_} = erl_eval:exprs(FunAbsForm,[]),
+			Funs;
+		false ->
+			FunList
+	end,
+	InputFuns = string:tokens(FunctionFuns,",[]"),
+
+	Timeout = try  
+			list_to_integer(Time)
+		catch 
+			_:_ -> 
+				{-1, -1}
+		end,
+	case Timeout of 
+		{-1, -1} -> 
+			usage(1);
+		_ -> 
+			%[secer:run(PoisRels,IFun,Timeout,independent,empty)|| IFun<- InputFuns]
+			%[secer:run(PoisRels,IFun,Timeout,empty)|| IFun<- InputFuns]
+			case Flag of
+				"-independent" ->
+					[secer:run(PoisRels,IFun,Timeout,independent,empty)|| IFun<- InputFuns];
+				_ ->
+					[secer:run(PoisRels,IFun,Timeout,sequential,empty)|| IFun<- InputFuns]		
+			end
+	end;
+
+
+
+
+
+
+
+
+
+
+
+
 main([
 		"-f", File1, 
 		"-li", Line1, 

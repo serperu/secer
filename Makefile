@@ -7,7 +7,7 @@ compile:
 	@cd cuter; ./fetch_protoc.sh; git submodule init && git submodule update; git submodule foreach make; autoconf; ./configure --with-protoc=$(ROOT_DIR)/cuter/lib/protoc-3.2.0/bin/protoc; make depend; make
 	@make secer
 
-secer:
+csecer:
 	@rm -Rf ebin
 	@mkdir ebin
 	@erlc -W0 -o ebin src/*.erl 

@@ -1,62 +1,76 @@
 -module(secer_input_gen).
--export([main/6,main/10,get_exports/1]).
+-export([main/5,get_exports/1]). %main/6,
 
 -define(TMP_PATH,"./tmp/").
 -define(INPUT_LIMIT,10000).
 -define(CUTER_TIMEOUT,20).
 
-main(Program1,Line1,Var1,Oc1,Program2,Line2,Var2,Oc2,Function,Time) ->
+main(PoisRels,ExecFun,Time,CMode,CompareFun) ->
 	try 
 		register(cuterIn,spawn(secer_trace,init,[])),
 		register(tracer,spawn(secer_trace,init,[])),
 
-		ModuleName1 = list_to_atom(filename:basename(Program1,".erl")),
-		ModuleName2 = list_to_atom(filename:basename(Program2,".erl")),
-		{FunName,Arity} = divide_function(Function),
+		[{Old,New}|_] = PoisRels,
+		
+		FileOld = atom_to_list(element(1,Old)),
+		FileNew = atom_to_list(element(1,New)),
+
+		ModuleName1 = list_to_atom(filename:basename(FileOld,".erl")),
+		ModuleName2 = list_to_atom(filename:basename(FileNew,".erl")),
+
+		{FunName,Arity} = divide_function(ExecFun),
 
 		case Arity of
 			0 ->
-				instrument_code(Program1,list_to_integer(Line1),Var1,list_to_integer(Oc1)),
-				instrument_code(Program2,list_to_integer(Line2),Var2,list_to_integer(Oc2)),
+				instrument_code(PoisRels,CompareFun),
 
-				ModTmp1 = list_to_atom(filename:basename(Program1,".erl")++"Tmp"),
-				ModTmp2 = list_to_atom(filename:basename(Program2,".erl")++"Tmp"),
 
-				execute_input(ModTmp1,ModTmp2,FunName,[],0);
+				ModTmp1 = list_to_atom(filename:basename(FileOld,".erl")++"Tmp"),
+				ModTmp2 = list_to_atom(filename:basename(FileNew,".erl")++"Tmp"),
+
+				execute_input(ModTmp1,ModTmp2,FunName,[],CMode);
 			_ ->
 				% PART 1
-				{ParamClauses,TypeDicts} = analyze_types(Program1,FunName,Arity),
+				{ParamClauses,TypeDicts} = analyze_types(FileOld,FunName,Arity),
 				TimeOut = Time div 3 * 2,
 				Inputs = execute_cuter(ModuleName1,FunName,ParamClauses,TypeDicts,TimeOut),
-				
+
 				% PART 2
-				instrument_code(Program1,list_to_integer(Line1),Var1,list_to_integer(Oc1)),
-				instrument_code(Program2,list_to_integer(Line2),Var2,list_to_integer(Oc2)),
+				instrument_code(PoisRels,CompareFun),
 
 				{ok, Fd} = file:open(?TMP_PATH++"cuter.txt", [write]),
 				Self = self(),
 				Ref = make_ref(),
+
 				spawn(fun() ->
 						group_leader(Fd,self()),
-						Self ! {cover_compilation(Program1),Ref}
+						Self ! {cover_compilation(FileOld),Ref}
 						end),
 				receive
 					{_,Ref} ->
 						file:close(Fd)
 				end,
 
-				ModTmp1 = list_to_atom(filename:basename(Program1,".erl")++"Tmp"),
-				ModTmp2 = list_to_atom(filename:basename(Program2,".erl")++"Tmp"),
-				lists:map(
-					fun(I) ->
-						catch apply(ModuleName1,FunName,I),
-						Cvg = get_coverage(ModuleName1),
-						{Clause,Dic} = identify_clause_input(ParamClauses,TypeDicts,I),
-						validate_input(ModuleName1,ModuleName2,FunName,I,Clause,Dic)
-						%execute_input(ModTmp1,ModTmp2,FunName,I)
+				ModTmp1 = list_to_atom(filename:basename(FileOld,".erl")++"Tmp"),
+				ModTmp2 = list_to_atom(filename:basename(FileNew,".erl")++"Tmp"),
+				NTInputs = lists:foldl(
+					fun(I,L) ->
+						{Trace1,_} = execute_input(ModTmp1,ModTmp2,FunName,I,CMode),
+						input_manager ! {existing_trace,Trace1,self()},
+						receive
+							true ->
+								L;
+							false ->
+								[I|L]
+						end
 					end,
+					[],
 					Inputs),
-				gen_random_inputs(ModuleName1,ModuleName2,FunName,ParamClauses,TypeDicts,0)
+				[begin 
+					{Clause,Dic} = identify_clause_input(ParamClauses,TypeDicts,NTI),
+					validate_input(ModuleName1,ModuleName2,FunName,NTI,Clause,Dic,CMode)
+				end || NTI<- NTInputs],
+				gen_random_inputs(ModuleName1,ModuleName2,FunName,ParamClauses,TypeDicts,0,CMode)
 		end
 	catch 
 		E:R ->
@@ -71,143 +85,143 @@ main(Program1,Line1,Var1,Oc1,Program2,Line2,Var2,Oc2,Function,Time) ->
 				secer ! continue
 		end
 	end.
-main(ProgramName,Line,Var,Oc,Function,Time) ->
-	try 
-		register(cuterIn,spawn(secer_trace,init,[])),
-		register(tracer,spawn(secer_trace,init,[])),
+% main(ProgramName,Line,Var,Oc,Function,Time) ->
+% 	try 
+% 		register(cuterIn,spawn(secer_trace,init,[])),
+% 		register(tracer,spawn(secer_trace,init,[])),
 
-		ModuleName = list_to_atom(filename:basename(ProgramName,".erl")),
-		{FunName,Arity} = divide_function(Function),
+% 		ModuleName = list_to_atom(filename:basename(ProgramName,".erl")),
+% 		{FunName,Arity} = divide_function(Function),
 
-		case Arity of
-			0 ->
-				instrument_code(ProgramName,list_to_integer(Line),Var,list_to_integer(Oc)),
-				ModTmp = list_to_atom(filename:basename(ProgramName,".erl")++"Tmp"),
-				execute_input(ModTmp,FunName,[],0);
-			_ ->
-				% PART 1
-				{ParamClauses,TypeDicts} = analyze_types(ProgramName,FunName,Arity),
-				TimeOut = Time div 3 * 2,
-				Inputs = execute_cuter(ModuleName,FunName,ParamClauses,TypeDicts,TimeOut),
+% 		case Arity of
+% 			0 ->
+% 				instrument_code(ProgramName,list_to_integer(Line),Var,list_to_integer(Oc)),
+% 				ModTmp = list_to_atom(filename:basename(ProgramName,".erl")++"Tmp"),
+% 				execute_input(ModTmp,FunName,[],0);
+% 			_ ->
+% 				% PART 1
+% 				{ParamClauses,TypeDicts} = analyze_types(ProgramName,FunName,Arity),
+% 				TimeOut = Time div 3 * 2,
+% 				Inputs = execute_cuter(ModuleName,FunName,ParamClauses,TypeDicts,TimeOut),
 
-				% PART 2
-				instrument_code(ProgramName,list_to_integer(Line),Var,list_to_integer(Oc)),
+% 				% PART 2
+% 				instrument_code(ProgramName,list_to_integer(Line),Var,list_to_integer(Oc)),
 				
-				{ok, Fd} = file:open(?TMP_PATH++"cuter.txt", [write]),
-				Self = self(),
-				Ref = make_ref(),
-				spawn(fun() ->
-						group_leader(Fd,self()),
-						Self ! {cover_compilation(ProgramName),Ref}
-						end),
-				receive
-					{_,Ref} ->
-						file:close(Fd)
-				end,
+% 				{ok, Fd} = file:open(?TMP_PATH++"cuter.txt", [write]),
+% 				Self = self(),
+% 				Ref = make_ref(),
+% 				spawn(fun() ->
+% 						group_leader(Fd,self()),
+% 						Self ! {cover_compilation(ProgramName),Ref}
+% 						end),
+% 				receive
+% 					{_,Ref} ->
+% 						file:close(Fd)
+% 				end,
 
-				ModTmp = list_to_atom(filename:basename(ProgramName,".erl")++"Tmp"),
-				lists:map(
-					fun(I) ->
-						catch apply(ModuleName,FunName,I),
-						Cvg = get_coverage(ModuleName),
-						{Clause,Dic} = identify_clause_input(ParamClauses,TypeDicts,I),
-						validate_input(ModuleName,FunName,I,Clause,Dic)
-						%execute_input(ModTmp,FunName,I,Cvg)
-					end,
-					Inputs),
-				gen_random_inputs(ModuleName,empty,FunName,ParamClauses,TypeDicts,0)
-		end
-	catch 
-		E:R ->
-			{E,R}
-	after
-		case whereis(cuterIn) of
-			undefined -> 
-				ok;
-			_ -> 
-				unregister(cuterIn),
-				unregister(tracer)
-		end
-	end.
+% 				ModTmp = list_to_atom(filename:basename(ProgramName,".erl")++"Tmp"),
+% 				lists:map(
+% 					fun(I) ->
+% 						catch apply(ModuleName,FunName,I),
+% 						Cvg = get_coverage(ModuleName),
+% 						{Clause,Dic} = identify_clause_input(ParamClauses,TypeDicts,I),
+% 						validate_input(ModuleName,FunName,I,Clause,Dic)
+% 						%execute_input(ModTmp,FunName,I,Cvg)
+% 					end,
+% 					Inputs),
+% 				gen_random_inputs(ModuleName,empty,FunName,ParamClauses,TypeDicts,0)
+% 		end
+% 	catch 
+% 		E:R ->
+% 			{E,R}
+% 	after
+% 		case whereis(cuterIn) of
+% 			undefined -> 
+% 				ok;
+% 			_ -> 
+% 				unregister(cuterIn),
+% 				unregister(tracer)
+% 		end
+% 	end.
 
-%%%%% PARA LA MAGIC TOOL %%%%%
+%%%%% MAGIC TOOL %%%%%
 
-magicToolMain(ProgramName,Line,Var,Oc) ->
-	ExportedFuns = get_exports(ProgramName),
-	[magicToolMain(ProgramName,Line,Var,Oc,Function)|| Function <- ExportedFuns].
+% magicToolMain(ProgramName,Line,Var,Oc) ->
+% 	ExportedFuns = get_exports(ProgramName),
+% 	[magicToolMain(ProgramName,Line,Var,Oc,Function)|| Function <- ExportedFuns].
 
-magicToolMain(ProgramName,Line,Var,Oc,Function) ->
-	try 
-		register(cuterIn,spawn(secer_trace,init,[])),
+% magicToolMain(ProgramName,Line,Var,Oc,Function) ->
+% 	try 
+% 		register(cuterIn,spawn(secer_trace,init,[])),
 
-		ModuleName = list_to_atom(filename:basename(ProgramName,".erl")),
-		{FunName,Arity} = divide_function(Function),
+% 		ModuleName = list_to_atom(filename:basename(ProgramName,".erl")),
+% 		{FunName,Arity} = divide_function(Function),
 
-		case Arity of
-			0 ->
-				instrument_code(ProgramName,list_to_integer(Line),Var,list_to_integer(Oc)),
-				ModTmp = list_to_atom(filename:basename(ProgramName,".erl")++"Tmp"),
-				execute_input(ModTmp,FunName,[],0);
-			_ ->
-				% PART 1
-				{ParamClauses,TypeDicts} = analyze_types(ProgramName,FunName,Arity),
-				Inputs = execute_cuter(ModuleName,FunName,ParamClauses,TypeDicts,?CUTER_TIMEOUT),
+% 		case Arity of
+% 			0 ->
+% 				instrument_code(ProgramName,list_to_integer(Line),Var,list_to_integer(Oc)),
+% 				ModTmp = list_to_atom(filename:basename(ProgramName,".erl")++"Tmp"),
+% 				execute_input(ModTmp,FunName,[],0);
+% 			_ ->
+% 				% PART 1
+% 				{ParamClauses,TypeDicts} = analyze_types(ProgramName,FunName,Arity),
+% 				Inputs = execute_cuter(ModuleName,FunName,ParamClauses,TypeDicts,?CUTER_TIMEOUT),
 
-				% PART 2
-				instrument_code(ProgramName,list_to_integer(Line),Var,list_to_integer(Oc)),
+% 				% PART 2
+% 				instrument_code(ProgramName,list_to_integer(Line),Var,list_to_integer(Oc)),
 				
-				{ok, Fd} = file:open(?TMP_PATH++"cuter.txt", [write]),
-				Self = self(),
-				Ref = make_ref(),
-				spawn(fun() ->
-						group_leader(Fd,self()),
-						Self ! {cover_compilation(ProgramName),Ref}
-						end),
-				receive
-					{_,Ref} ->
-						file:close(Fd)
-				end,
+% 				{ok, Fd} = file:open(?TMP_PATH++"cuter.txt", [write]),
+% 				Self = self(),
+% 				Ref = make_ref(),
+% 				spawn(fun() ->
+% 						group_leader(Fd,self()),
+% 						Self ! {cover_compilation(ProgramName),Ref}
+% 						end),
+% 				receive
+% 					{_,Ref} ->
+% 						file:close(Fd)
+% 				end,
 
-				ModTmp = list_to_atom(filename:basename(ProgramName,".erl")++"Tmp"),
-				lists:map(
-					fun(I) ->
-						catch apply(ModuleName,FunName,I)
-					end,
-					Inputs),
-				gen_inputs_until_max_coverage(ModuleName,FunName,Inputs,ParamClauses,TypeDicts,length(Inputs))
-		end
-	catch 
-		E:R ->
-			{E,R}
-	after
-		case whereis(cuterIn) of
-			undefined -> 
-				ok;
-			_ -> 
-				unregister(cuterIn)
-		end
-	end.
+% 				ModTmp = list_to_atom(filename:basename(ProgramName,".erl")++"Tmp"),
+% 				lists:map(
+% 					fun(I) ->
+% 						catch apply(ModuleName,FunName,I)
+% 					end,
+% 					Inputs),
+% 				gen_inputs_until_max_coverage(ModuleName,FunName,Inputs,ParamClauses,TypeDicts,length(Inputs))
+% 		end
+% 	catch 
+% 		E:R ->
+% 			{E,R}
+% 	after
+% 		case whereis(cuterIn) of
+% 			undefined -> 
+% 				ok;
+% 			_ -> 
+% 				unregister(cuterIn)
+% 		end
+% 	end.
 
-gen_inputs_until_max_coverage(_,_,Inputs,_,_,?INPUT_LIMIT) ->
-	Inputs;
-gen_inputs_until_max_coverage(ModuleName,FunName,Inputs,ParamClauses,TypeDicts,N) ->
-	Cvg = get_coverage(ModuleName),
-	case Cvg of
-		1.0 ->
-			Inputs;
-		_ ->
-			Params = lists:nth(rand:uniform(length(ParamClauses)),ParamClauses),
-			{ok,Dic} = dict:find(Params,TypeDicts),	
+% gen_inputs_until_max_coverage(_,_,Inputs,_,_,?INPUT_LIMIT) ->
+% 	Inputs;
+% gen_inputs_until_max_coverage(ModuleName,FunName,Inputs,ParamClauses,TypeDicts,N) ->
+% 	Cvg = get_coverage(ModuleName),
+% 	case Cvg of
+% 		1.0 ->
+% 			Inputs;
+% 		_ ->
+% 			Params = lists:nth(rand:uniform(length(ParamClauses)),ParamClauses),
+% 			{ok,Dic} = dict:find(Params,TypeDicts),	
 
-			Input = (catch generate_instance({Dic,Params})),
-			case lists:member(Input,Inputs) of
-				true -> 
-					gen_inputs_until_max_coverage(ModuleName,FunName,Inputs,ParamClauses,TypeDicts,N);
-				false ->
-					catch apply(ModuleName,FunName,Input),
-					gen_inputs_until_max_coverage(ModuleName,FunName,[Input|Inputs],ParamClauses,TypeDicts,N+1)
-			end
-	end.
+% 			Input = (catch generate_instance({Dic,Params})),
+% 			case lists:member(Input,Inputs) of
+% 				true -> 
+% 					gen_inputs_until_max_coverage(ModuleName,FunName,Inputs,ParamClauses,TypeDicts,N);
+% 				false ->
+% 					catch apply(ModuleName,FunName,Input),
+% 					gen_inputs_until_max_coverage(ModuleName,FunName,[Input|Inputs],ParamClauses,TypeDicts,N+1)
+% 			end
+% 	end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -240,13 +254,16 @@ execute_cuter(ModuleName,FunName,ParamClauses,Dicts,TimeOut) ->
 	{ok,Dic} = dict:find(Params,Dicts),
 
 	Input = (catch generate_instance({Dic,Params})),
+	%Input = [[2,11],[24,1,15,0,11,3,29,0,6]],
+	%Input = [[11,19,2,2,2,10,7,13],[2,2]],
+	%Input = [[2,5],[5,8]],
 	CuterInputs = get_cuter_inputs(ModuleName,FunName,Input,TimeOut),
 
 	[Input|CuterInputs].
-instrument_code(Program,Line,Var,Oc) ->
+instrument_code(PoisRels,CompareFun) -> %TODO =>MEJORABLE<= No hacer reset para luego unregister. Controlar eso
 	try
 		register(var_gen,spawn(secer_fv_server,init,[])),
-		secer_criterion_manager:get_replaced_AST(Program,Line,Var,Oc),
+		secer_criterion_manager:main(PoisRels,CompareFun),
 		var_gen ! reset
 
 	catch 
@@ -657,10 +674,10 @@ execute_input(Mod,FunName,Input,Cvg) ->
 	input_manager ! {add,Input,ScValue,Cvg},
 	ScValue.
 
-execute_input(Mod1,Mod2,FunName,Input,Cvg) ->
+execute_input(Mod1,Mod2,FunName,Input,Mode) ->
 	ScValue1 = execute(Mod1,FunName,Input),
 	ScValue2 = execute(Mod2,FunName,Input),
-	input_manager ! {add,Input,ScValue1,ScValue2,Cvg},
+	input_manager ! {add,Input,ScValue1,ScValue2,Mode},
 	{ScValue1,ScValue2}.
 % execute([Input|Rest],M,F) ->	EXECUTION WITH TIMEOUT (FOR INFINITY LOOPS)
 %     Pid = spawn(M,F,Input),
@@ -703,26 +720,26 @@ executed_lines([Line|Remaining],Executed) ->
 % GENERATE RANDOM %
 %%%%%%%%%%%%%%%%%%%
 
-gen_random_inputs(Mod,empty,Fun,ParamClauses,Dicts,N) ->
+gen_random_inputs(Mod,empty,Fun,ParamClauses,Dicts,N,_) ->
 	gen_random_inputs(Mod,Fun,ParamClauses,Dicts,N);
-gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,Dicts,10000) ->
+gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,Dicts,10000,Mode) ->
 	NewDicts = dict:map(
 		fun(_,V) ->
 			increment_integer_types(V)
 		end,
 		Dicts),
-	gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,NewDicts,0);
-gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,Dicts,N) ->
+	gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,NewDicts,0,Mode);
+gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,Dicts,N,Mode) ->
 	Params = lists:nth(rand:uniform(length(ParamClauses)),ParamClauses),
 	{ok,Dic} = dict:find(Params,Dicts),	
 
 	Input = (catch generate_instance({Dic,Params})),
-	Res = validate_input(Mod1,Mod2,Fun,Input,Params,Dic),
+	Res = validate_input(Mod1,Mod2,Fun,Input,Params,Dic,Mode),
 	case Res of
 		X when X == contained orelse X == existent_trace ->
-			gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,Dicts,N+1);
+			gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,Dicts,N+1,Mode);
 		_ ->
-			gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,Dicts,0)
+			gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,Dicts,0,Mode)
 	end.
 
 gen_random_inputs(Mod,Fun,ParamClauses,Dicts,10000) ->
@@ -763,7 +780,7 @@ validate_input(Mod,Fun,Input,Params,Dic) ->
 					gen_guided_input(Mod,Fun,Input,Params,Dic)
 			end
 	end.
-validate_input(Mod1,Mod2,Fun,Input,Params,Dic) ->
+validate_input(Mod1,Mod2,Fun,Input,Params,Dic,Mode) ->
 	ModTmp1 = list_to_atom(atom_to_list(Mod1)++"Tmp"),
 	ModTmp2 = list_to_atom(atom_to_list(Mod2)++"Tmp"),
 	input_manager ! {contained,Input,self()},
@@ -771,15 +788,15 @@ validate_input(Mod1,Mod2,Fun,Input,Params,Dic) ->
 		true ->
 			contained;
 		false ->
-			catch apply(Mod1,Fun,Input),
-			Cvg = get_coverage(Mod1),
-			{Trace1,_Trace2} = execute_input(ModTmp1,ModTmp2,Fun,Input,Cvg),
+			%catch apply(Mod1,Fun,Input),
+			%Cvg = get_coverage(Mod1),
+			{Trace1,_Trace2} = execute_input(ModTmp1,ModTmp2,Fun,Input,Mode),
 			input_manager ! {existing_trace,Trace1,self()},
 			receive
 				true ->
 					existent_trace;
 				false ->
-					gen_guided_input(Mod1,Mod2,Fun,Input,Params,Dic)
+					gen_guided_input(Mod1,Mod2,Fun,Input,Params,Dic,Mode)
 			end
 	end.
 
@@ -791,13 +808,13 @@ gen_guided_input(Mod,Fun,Input,Params,Dic) ->
 			NewInputs = gen_new_inputs(Input,Params,Dic),
 			[validate_input(Mod,Fun,NewInput,Params,Dic)|| NewInput <- NewInputs]
 	end. 
-gen_guided_input(Mod1,Mod2,Fun,Input,Params,Dic) ->
+gen_guided_input(Mod1,Mod2,Fun,Input,Params,Dic,Mode) ->
 	case length(Input) of
 		Size when Size < 2 ->
 			next;
 		_Size ->
 			NewInputs = gen_new_inputs(Input,Params,Dic),
-			[validate_input(Mod1,Mod2,Fun,NewInput,Params,Dic)|| NewInput <- NewInputs]
+			[validate_input(Mod1,Mod2,Fun,NewInput,Params,Dic,Mode)|| NewInput <- NewInputs]
 	end. 
 
 gen_new_inputs(Input,Params,Dic) ->
