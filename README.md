@@ -26,8 +26,8 @@ Usage
 
 There are two ways of running the tool, both considered in the command
 
-	./secer -pois "LIST_OF_POIS" [-funs "INPUT_FUNCTIONS"] -to TIMEOUT 
-	 	   [-independent | -cfun "COMPARISON_FUN"]
+    ./secer -pois "LIST_OF_POIS" [-funs "INPUT_FUNCTIONS"] -to TIMEOUT 
+           [-independent | -cfun "COMPARISON_FUN"]
 
 If we want to run the command to only generate a test suite, we need to provide a list of POIs (LIST_OF_POIS) contained in double quotes, a list of initial functions (INPUT_FUNCTIONS) also between double quotes, and a timeout (TIMEOUT). On the other hand, if we want to perform a comparison of two Erlang files we just need to provide a list of related POIs from both programs.
 
