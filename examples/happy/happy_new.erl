@@ -18,8 +18,7 @@ happy(X, Top, XS) ->
 	if
 		length(XS) == Top -> sort(XS);
 		true ->
-			Happy = is_happy(X,[]),
-			case Happy of
+			case is_happy(X,[]) of
 				true -> happy(X + 1, Top, [X|XS]);
 				false -> happy(X + 1,Top, XS)
 			end
