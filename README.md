@@ -26,11 +26,10 @@ Usage
 
 There are two ways of running the tool, both considered in the command
 
-    ./secer -f FILE -li LINE -var VARIABLE [-oc OCCURRENCE] 
-           [-f FILE -li LINE -var VARIABLE [-oc OCCURRENCE]]
-           [-funs INPUT_FUNCTIONS] -to TIMEOUT
+	./secer -pois "LIST_OF_POIS" [-funs "INPUT_FUNCTIONS"] -to TIMEOUT 
+	 	   [-independent | -cfun "COMPARISON_FUN"]
 
-If we want to run the command to only generate a test suite, we need to provide the path of the target file (FILE), the point of interest {LINE,VARIABLE,OCCURRENCE (1 by default)}, a list of initial functions (INPUT FUNCTIONS) in the format [Fun/Arity], and a timeout (TIMEOUT). On the other hand, if we want to perform a comparison of two Erlang files, we also need to provide the path of the second file and the point of interest to be compared.
+If we want to run the command to only generate a test suite, we need to provide a list of POIs (LIST_OF_POIS) contained in double quotes, a list of initial functions (INPUT_FUNCTIONS) also between double quotes, and a timeout (TIMEOUT). On the other hand, if we want to perform a comparison of two Erlang files we just need to provide a list of related POIs from both programs.
 
 Example
 =======

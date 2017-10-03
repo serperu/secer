@@ -17,7 +17,7 @@ main(POIList,CompareFun) ->
 		{LineColPOIsOld,ExplicitPOIsOld} = lists:foldl(
 			fun(P,{LCP,EP}) ->
 				case P of
-					{_,_,_,{_,_}} ->
+					{_,{_,_},{_,_}} ->
 						{[P|LCP],EP};
 					_ ->
 						{LCP,[P|EP]}
@@ -38,7 +38,7 @@ main(POIList,CompareFun) ->
 		LCPoisOld = [
 			begin 
 				{_,Program} = read_expression(POI),
-				{_,SLine,_,_} = POI,
+				{_,{SLine,_},_} = POI,
 				{ok,ChangedFd} = file:open(?TMP_PATH++FileOld,[write,{encoding, unicode}]),
 				io:format(ChangedFd,"~s",[Program]),
 				{ok,AST0} = epp:parse_file(?TMP_PATH++FileOld,[],[]),
@@ -56,7 +56,7 @@ main(POIList,CompareFun) ->
 		{LineColPOIsNew,ExplicitPOIsNew} = lists:foldl(
 			fun(P,{LCP,EP}) ->
 				case P of
-					{_,_,_,{_,_}} ->
+					{_,{_,_},{_,_}} ->
 						{[P|LCP],EP};
 					_ ->
 						{LCP,[P|EP]}
@@ -76,7 +76,7 @@ main(POIList,CompareFun) ->
 		LCPoisNew = [
 			begin 
 				{_,Program} = read_expression(POI),
-				{_,SLine,_,_} = POI,
+				{_,{SLine,_},_} = POI,
 				{ok,ChangedFd} = file:open(?TMP_PATH++FileNew,[write,{encoding, unicode}]),
 				io:format(ChangedFd,"~s",[Program]),
 				{ok,AST0} = epp:parse_file(?TMP_PATH++FileNew,[],[]),
@@ -102,7 +102,7 @@ main(POIList,CompareFun) ->
 %%% LINE COL POIS %%%
 %%%%%%%%%%%%%%%%%%%%%
 read_expression(Poi) ->
-	{FileI,LineI,ColI,{LineF,ColF}} = Poi,
+	{FileI,{LineI,ColI},{LineF,ColF}} = Poi,
 	{ok,FileContent} = file:read_file(FileI),
 	FileString = unicode:characters_to_list(FileContent),
 	Tokens = re:split(FileString,"\n",[{return,list}]),
