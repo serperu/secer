@@ -14,9 +14,9 @@ loop(State) ->
 		{add,Elem} ->
 			NewState = [Elem|State],
 			loop(NewState);
-		{get_results,Pid} ->
+		{get_results,Ref,Pid} ->
 			Results = lists:reverse(State),
-			Pid ! Results,
+			Pid ! {Ref,Results},
 			loop([]);
 		_ ->
 			loop(State)

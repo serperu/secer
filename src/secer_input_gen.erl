@@ -24,7 +24,6 @@ main(PoisRels,ExecFun,Time,CMode,CompareFun) ->
 			0 ->
 				instrument_code(PoisRels,CompareFun),
 
-
 				ModTmp1 = list_to_atom(filename:basename(FileOld,".erl")++"Tmp"),
 				ModTmp2 = list_to_atom(filename:basename(FileNew,".erl")++"Tmp"),
 
@@ -37,7 +36,6 @@ main(PoisRels,ExecFun,Time,CMode,CompareFun) ->
 
 				% PART 2
 				instrument_code(PoisRels,CompareFun),
-
 				{ok, Fd} = file:open(?TMP_PATH++"cuter.txt", [write]),
 				Self = self(),
 				Ref = make_ref(),
@@ -55,12 +53,14 @@ main(PoisRels,ExecFun,Time,CMode,CompareFun) ->
 				ModTmp2 = list_to_atom(filename:basename(FileNew,".erl")++"Tmp"),
 				NTInputs = lists:foldl(
 					fun(I,L) ->
+						RefEx = make_ref(),
 						{Trace1,_} = execute_input(ModTmp1,ModTmp2,FunName,I,CMode),
-						input_manager ! {existing_trace,Trace1,self()},
+
+						input_manager ! {existing_trace,Trace1,RefEx,self()},
 						receive
-							true ->
+							{RefEx,true} ->
 								L;
-							false ->
+							{RefEx,false} ->
 								[I|L]
 						end
 					end,
@@ -244,7 +244,7 @@ analyze_types(FileName,FunName,Arity) ->
 					end, 
 					FuncTypes),		
 			{_Origin,InputTypes} = get_inputs(FunctionSpec),
-
+	
 			ParamNames = get_parameters(Abstract,FunName,Arity),
 			DictOfDicts = generate_all_clause_dicts(ParamNames,InputTypes),
 			{ParamNames,DictOfDicts}
@@ -254,12 +254,13 @@ execute_cuter(ModuleName,FunName,ParamClauses,Dicts,TimeOut) ->
 	{ok,Dic} = dict:find(Params,Dicts),
 
 	Input = (catch generate_instance({Dic,Params})),
+
 	%Input = [[2,11],[24,1,15,0,11,3,29,0,6]],
 	%Input = [[11,19,2,2,2,10,7,13],[2,2]],
 	%Input = [[2,5],[5,8]],
-	CuterInputs = get_cuter_inputs(ModuleName,FunName,Input,TimeOut),
-
-	[Input|CuterInputs].
+	%CuterInputs = get_cuter_inputs(ModuleName,FunName,Input,TimeOut),
+	[Input].
+	%[Input|CuterInputs].
 instrument_code(PoisRels,CompareFun) -> %TODO =>MEJORABLE<= No hacer reset para luego unregister. Controlar eso
 	try
 		register(var_gen,spawn(secer_fv_server,init,[])),
@@ -664,9 +665,10 @@ get_cuter_inputs(ModuleName,FunName,Input,TimeOut) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 execute(MP,Fun,Input) ->
 	catch apply(MP,Fun,Input),
-	tracer ! {get_results,self()},
+	Ref = make_ref(),
+	tracer ! {get_results,Ref,self()},
 	receive
-		X -> X
+		{Ref,X} -> X
 	end.
 
 execute_input(Mod,FunName,Input,Cvg) ->
@@ -764,38 +766,42 @@ gen_random_inputs(Mod,Fun,ParamClauses,Dicts,N) ->
 
 validate_input(Mod,Fun,Input,Params,Dic) ->
 	ModTmp = list_to_atom(atom_to_list(Mod)++"Tmp"),
-	input_manager ! {contained,Input,self()},
+	RefC = make_ref(),
+	input_manager ! {contained,Input,RefC,self()},
 	receive
-		true ->
+		{Ref,true} ->
 			contained;
-		false ->
+		{Ref,false} ->
 			catch apply(Mod,Fun,Input),
 			Cvg = get_coverage(Mod),
 			Trace = execute_input(ModTmp,Fun,Input,Cvg),
-			input_manager ! {existing_trace,Trace,self()},
+			RefEx = make_ref(),
+			input_manager ! {existing_trace,Trace,RefEx,self()},
 			receive
-				true ->
+				{RefEx,true} ->
 					existent_trace;
-				false ->
+				{RefEx,false} ->
 					gen_guided_input(Mod,Fun,Input,Params,Dic)
 			end
 	end.
 validate_input(Mod1,Mod2,Fun,Input,Params,Dic,Mode) ->
 	ModTmp1 = list_to_atom(atom_to_list(Mod1)++"Tmp"),
 	ModTmp2 = list_to_atom(atom_to_list(Mod2)++"Tmp"),
-	input_manager ! {contained,Input,self()},
+	RefC = make_ref(),
+	input_manager ! {contained,Input,RefC,self()},
 	receive
-		true ->
+		{RefC,true} ->
 			contained;
-		false ->
+		{RefC,false} ->
 			%catch apply(Mod1,Fun,Input),
 			%Cvg = get_coverage(Mod1),
 			{Trace1,_Trace2} = execute_input(ModTmp1,ModTmp2,Fun,Input,Mode),
-			input_manager ! {existing_trace,Trace1,self()},
+			RefEx = make_ref(),
+			input_manager ! {existing_trace,Trace1,RefEx,self()},
 			receive
-				true ->
+				{RefEx,true} ->
 					existent_trace;
-				false ->
+				{RefEx,false} ->
 					gen_guided_input(Mod1,Mod2,Fun,Input,Params,Dic,Mode)
 			end
 	end.
@@ -833,6 +839,17 @@ increment_integer_types(Dic) ->
 				case V of
 					{number,any,integer} ->
 						{number,{int_rng,-50,50},integer};
+					{number,{int_rng,neg_inf,pos_inf},integer} ->
+						{number,{int_rng,neg_inf,pos_inf},integer};
+					{number,{int_rng,Min,pos_inf},integer} ->
+						case Min < 0 of
+							true ->
+								{number,{int_rng,2*Min,pos_inf},integer};
+							false ->
+								{number,{int_rng,Min,pos_inf},integer}
+						end;
+					{number,{int_rng,neg_inf,Max},integer} ->
+						{number,{int_rng,neg_inf,Max*2},integer};
 					{number,{int_rng,Min,Max},integer} ->
 						case {Min =< 0, Max >= 0} of
 							{false,true} ->

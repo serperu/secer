@@ -33,18 +33,18 @@ loop(State) ->
 				compare_fun = F
 			},
 			loop(NewState);
-		{contained,Input,Pid} ->
+		{contained,Input,Ref,Pid} ->
 			case {dict:is_key(Input,State#state.same_trace),dict:is_key(Input,State#state.different_trace)} of
 				{false,false} ->
-					Pid ! false;
+					Pid ! {Ref,false};
 				_ -> 
-					Pid ! true
+					Pid ! {Ref,true}
 			end,
 			loop(State);
-		{existing_trace,Trace,Pid} ->
+		{existing_trace,Trace,Ref,Pid} ->
 			case Trace of
 				[] ->
-					Pid ! true;
+					Pid ! {Ref,true};
 				_ ->
 					Exists = dict:fold(
 						fun (_,V,Acc) ->
@@ -57,7 +57,7 @@ loop(State) ->
 						end,
 						false,
 						State#state.valued_trace),
-					Pid ! Exists
+					Pid ! {Ref,Exists}
 			end,
 			loop(State);
 		{add,Input,Trace,Cvg} ->

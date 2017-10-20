@@ -12,7 +12,7 @@ main(POIList,CompareFun) ->
 		{PoiListOld,PoiListNew} = divide_poi_list(NewPoiList),
 		FileOld = atom_to_list(element(1,lists:nth(1,PoiListOld))),
 		FileNew = atom_to_list(element(1,lists:nth(1,PoiListNew))),
-		
+
 		%OLD FILE
 		{LineColPOIsOld,ExplicitPOIsOld} = lists:foldl(
 			fun(P,{LCP,EP}) ->
@@ -888,9 +888,10 @@ replace_pattern_with_free_variables(Pattern,[{_Type1,_N1,M1},{_Type,N,M2}|T],Var
 	{replacenth(M1,erl_syntax:make_tree(erl_syntax:type(Sc_elem),Final_children),New_pattern),Sc_fv}.
 
 gen_and_put_scFreeVar() ->
-	var_gen ! {get_free_variable,self()},
+	Ref = make_ref(),
+	var_gen ! {get_free_variable,Ref,self()},
 	New_var = receive
-				FV -> 
+				{FV,Ref} -> 
 					FV
 			  end,
 	%erlang:put(slicing_criterion,New_var),
@@ -1036,9 +1037,10 @@ replace_after_position([H|T],Index,New_list,Pos,Dic) -> %REVISAR QUE HACER CUAND
 	end.
 
 gen_free_var() ->
-	var_gen ! {get_free_variable,self()},
+	Ref = make_ref(),
+	var_gen ! {get_free_variable,Ref,self()},
 	receive
-		FV -> FV
+		{FV,Ref} -> FV
 	end.
 
 gen_free_var_before_sc(Var,Dic) ->
@@ -1064,7 +1066,7 @@ add_at_nth(New_element,Add_index,Index,[Elem|List],New_list) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%
 %%% DEBUGGING PURPOSE %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%
-% printer(Node) -> io:format("~p\n",[Node]).
+printer(Node) -> io:format("~p\n",[Node]).
 % printers(Node) -> io:format("~s\n",[erl_prettypr:format(Node)]).
 % printList([]) -> 
 % 	theEnd;

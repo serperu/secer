@@ -44,7 +44,7 @@ loop(State) ->
 							State#state.variables)
 				},
 			loop(NewState);
-		{get_free_variable, Pid} ->
+		{get_free_variable, Ref, Pid} ->
 			CurrentId = 
 				State#state.current_id,
 			NewState =
@@ -55,7 +55,8 @@ loop(State) ->
 			FreeVariable = 
 					State#state.max_length_variable 
 				++ 	integer_to_list(CurrentId), 
-			Pid ! erl_syntax:variable(FreeVariable),
+
+			Pid ! {erl_syntax:variable(FreeVariable),Ref},
 			loop(NewState);
 		Other ->
 			erlang:exit(
