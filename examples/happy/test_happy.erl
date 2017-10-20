@@ -4,7 +4,7 @@
 poi1Old() ->
 	{'happy_old.erl',6,call,1}.
 poi1New() ->
-	{'happy_new.erl',29,2,{29,16}}.
+	{'happy_new.erl',{29,2},{29,16}}.
 poi2Old() ->
 	{'happy_old.erl',10,call,1}.
 poi2New() ->
