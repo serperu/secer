@@ -1,6 +1,6 @@
 #!/usr/bin/env escript
 %% -*- erlang -*-
-%%! -pa ebin cuter/ebin proper/ebin
+%%! -pa ebin cuter/ebin cuter/lib/proper/ebin
 
 main([X]) when X == "-h" orelse X == "--help" ->
 	io:format("~s\n",[help_message()]);

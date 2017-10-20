@@ -5,7 +5,7 @@ ERLC_PATH = $(shell dirname $(lastword $(ERLC_DIR)))
 compile:
 	@chmod +x secer
 	#@cd cuter; ./fetch_protoc.sh; git submodule init && git submodule update; git submodule foreach make; autoconf; ./configure --with-protoc=$(ROOT_DIR)/cuter/lib/protoc-3.2.0/bin/protoc; make depend; make
-	@cd proper; make
+	@cd cuter/lib/proper; make
 	@make csecer
 
 csecer:
