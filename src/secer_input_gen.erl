@@ -31,8 +31,9 @@ main(PoisRels,ExecFun,Time,CMode,CompareFun) ->
 			_ ->
 				% PART 1
 				{ParamClauses,TypeDicts} = analyze_types(FileOld,FunName,Arity),
-				TimeOut = Time div 3 * 2,
-				Inputs = execute_cuter(ModuleName1,FunName,ParamClauses,TypeDicts,TimeOut),
+				TimeOut = Time div 3,
+				%Inputs = execute_cuter(ModuleName1,FunName,ParamClauses,TypeDicts,TimeOut),
+				Inputs = execute_cuter(ModuleName1,ModuleName2,FunName,ParamClauses,TypeDicts,TimeOut),
 
 				% PART 2
 				instrument_code(PoisRels,CompareFun),
@@ -54,9 +55,8 @@ main(PoisRels,ExecFun,Time,CMode,CompareFun) ->
 				NTInputs = lists:foldl(
 					fun(I,L) ->
 						RefEx = make_ref(),
-						{Trace1,_} = execute_input(ModTmp1,ModTmp2,FunName,I,CMode),
-
-						input_manager ! {existing_trace,Trace1,RefEx,self()},
+						{Trace1,Trace2} = execute_input(ModTmp1,ModTmp2,FunName,I,CMode),
+						input_manager ! {existing_trace,I,{Trace1,Trace2},RefEx,self()},
 						receive
 							{RefEx,true} ->
 								L;
@@ -74,6 +74,7 @@ main(PoisRels,ExecFun,Time,CMode,CompareFun) ->
 		end
 	catch 
 		E:R ->
+			%printer({E,R}),
 			{E,R}
 	after
 		case whereis(cuterIn) of
@@ -249,18 +250,29 @@ analyze_types(FileName,FunName,Arity) ->
 			DictOfDicts = generate_all_clause_dicts(ParamNames,InputTypes),
 			{ParamNames,DictOfDicts}
 	end.
-execute_cuter(ModuleName,FunName,ParamClauses,Dicts,TimeOut) ->
+execute_cuter0(ModuleName,FunName,ParamClauses,Dicts,TimeOut) ->
 	Params = lists:nth(rand:uniform(length(ParamClauses)),ParamClauses),
 	{ok,Dic} = dict:find(Params,Dicts),
 
 	Input = (catch generate_instance({Dic,Params})),
-
-	%Input = [[2,11],[24,1,15,0,11,3,29,0,6]],
-	%Input = [[11,19,2,2,2,10,7,13],[2,2]],
-	%Input = [[2,5],[5,8]],
+	%[Input].
+	%Input = [[7,9],[7,5]].
+	
 	%CuterInputs = get_cuter_inputs(ModuleName,FunName,Input,TimeOut),
-	[Input].
-	%[Input|CuterInputs].
+	CuterInputs = get_cuter_inputs0(ModuleName,undef,FunName,Input,TimeOut),
+	[Input|CuterInputs].
+execute_cuter(ModuleName1,ModuleName2,FunName,ParamClauses,Dicts,TimeOut) ->
+	Params = lists:nth(rand:uniform(length(ParamClauses)),ParamClauses),
+	{ok,Dic} = dict:find(Params,Dicts),
+
+	Input = (catch generate_instance({Dic,Params})),
+	%[Input].
+	%Input = [[7,9],[7,5]].
+	
+	%CuterInputs = get_cuter_inputs(ModuleName,FunName,Input,TimeOut),
+	CuterInputs = get_cuter_inputs(ModuleName1,ModuleName2,FunName,Input,TimeOut),
+	[Input|CuterInputs].
+
 instrument_code(PoisRels,CompareFun) -> %TODO =>MEJORABLE<= No hacer reset para luego unregister. Controlar eso
 	try
 		register(var_gen,spawn(secer_fv_server,init,[])),
@@ -622,7 +634,8 @@ is_variable(N) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % EXECUTE CUTER AND GET THE GENERATED INPUTS %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-get_cuter_inputs(ModuleName,FunName,Input,TimeOut) ->
+get_cuter_inputs0(_,ModuleName,FunName,Input,TimeOut) ->
+	compile:file(ModuleName,[debug_info]),
 	Self = self(),
 	Ref = make_ref(),
 	{ok, Fd} = file:open(?TMP_PATH++"cuter.txt", [write]),
@@ -634,27 +647,91 @@ get_cuter_inputs(ModuleName,FunName,Input,TimeOut) ->
 		end)),
 	Result = receive
 		{finish,Ref} ->
-			cuterIn ! {get_results,Self},
+			RefC = make_ref(),
+			cuterIn ! {get_results,RefC,Self},
 			cuterIn ! exit,
 			receive
-				[] ->	
+				{RefC,[]} ->	
 					[];
-				Inputs ->
+				{RefC,Inputs} ->
 					Inputs
 			end
 	after TimeOut * 1000 -> 
 			timer:exit_after(0,cuterProcess,kill),
 			os:cmd("rm -Rf ./temp"),
-			cuterIn ! {get_results,Self},
+			RefCut = make_ref(),
+			cuterIn ! {get_results,RefCut,Self},
 			receive
-				[] ->	
+				{RefCut,[]} ->	
 					[];
-				Inputs ->
+				{RefCut,Inputs} ->
 					Inputs
 			end
 	end,
 	file:close(Fd),
 	Result.
+
+get_cuter_inputs(ModuleName1,ModuleName2,FunName,Input,TimeOut) ->
+	compile:file(ModuleName2,[debug_info]),
+	Self = self(),
+	Ref = make_ref(),
+	{ok, Fd} = file:open(?TMP_PATH++"cuter.txt", [write]),
+	register(cuterProcess1,spawn(
+		fun() ->
+			group_leader(Fd, self()),
+			catch cuter:run(ModuleName1,FunName,Input,25,[{number_of_pollers,1},{number_of_solvers,1}]),
+			cuterProcess2 ! {finish1,Ref}
+		end)),
+	register(cuterProcess2,spawn(
+		fun() ->
+			receive
+				{finish1,Ref} ->
+					group_leader(Fd, self()),
+					catch cuter:run(ModuleName2,FunName,Input,25,[{number_of_pollers,1},{number_of_solvers,1}]),
+					Self ! {finish2,Ref}
+			after TimeOut*1000 ->
+				timer:exit_after(0,cuterProcess1,kill),
+				group_leader(Fd, self()),
+				catch cuter:run(ModuleName2,FunName,Input,25,[{number_of_pollers,1},{number_of_solvers,1}]),
+				Self ! {finish2,Ref}
+			end
+		end)),
+	Result = receive
+			{finish2,Ref} ->
+				RefC = make_ref(),
+				cuterIn ! {get_results,RefC,Self},
+				cuterIn ! exit,
+				receive
+					{RefC,Inputs} ->
+						Inputs
+				end
+	after TimeOut * 2000 -> 
+			timer:exit_after(0,cuterProcess2,kill),
+			os:cmd("rm -Rf ./temp"),
+			RefCut = make_ref(),
+			cuterIn ! {get_results,RefCut,Self},
+			receive
+				{RefCut,[]} ->	
+					[];
+				{RefCut,Inputs} ->
+					Inputs
+			end
+	end,
+	file:close(Fd),
+	remove_duplicated(Result).
+
+remove_duplicated(List) ->
+	sets:to_list(sets:from_list(List)).
+    % lists:reverse(lists:foldl(
+    %     fun(Elem, Acc) ->
+    %         case lists:member(Elem, Acc) of
+    %             true ->
+    %                 Acc;
+    %             false ->
+    %                 [Elem] ++ Acc
+    %         end
+    %     end, [], List
+    % )).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%% PART 2: INSTRUMENT THE CODE AND RANDOM GENERATION WITH PROPER  %%%%%%%%%%%%
@@ -776,7 +853,7 @@ validate_input(Mod,Fun,Input,Params,Dic) ->
 			Cvg = get_coverage(Mod),
 			Trace = execute_input(ModTmp,Fun,Input,Cvg),
 			RefEx = make_ref(),
-			input_manager ! {existing_trace,Trace,RefEx,self()},
+			input_manager ! {existing_trace,Input,Trace,RefEx,self()},
 			receive
 				{RefEx,true} ->
 					existent_trace;
@@ -795,9 +872,9 @@ validate_input(Mod1,Mod2,Fun,Input,Params,Dic,Mode) ->
 		{RefC,false} ->
 			%catch apply(Mod1,Fun,Input),
 			%Cvg = get_coverage(Mod1),
-			{Trace1,_Trace2} = execute_input(ModTmp1,ModTmp2,Fun,Input,Mode),
+			{Trace1,Trace2} = execute_input(ModTmp1,ModTmp2,Fun,Input,Mode),
 			RefEx = make_ref(),
-			input_manager ! {existing_trace,Trace1,RefEx,self()},
+			input_manager ! {existing_trace,Input,{Trace1,Trace2},RefEx,self()},
 			receive
 				{RefEx,true} ->
 					existent_trace;

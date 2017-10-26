@@ -33,7 +33,7 @@ main(["-pois", Pois, "-funs", FunList, "-to", Time, "-cfun", CFun]) ->
 	end,
 	InputFuns = string:tokens(FunctionFuns,",[]"),
 
-	{ok,CFunTokens,_} = erl_scan:string("fun "++CFun++"."),
+	{ok,CFunTokens,_} = erl_scan:string("fun "++CFun++"/2."),
 	{ok,CFunAbsForm} = erl_parse:parse_exprs(CFunTokens),
 	{value,CompareFun,_} = erl_eval:exprs(CFunAbsForm,[]),
 
@@ -169,11 +169,11 @@ main([
 
         InputFuns = string:tokens(Fun,",[]"),
 		Res = try  
-			list_to_integer(Line1), 
-			list_to_integer(Line2),
-			list_to_integer(Oc1),
-			list_to_integer(Oc2),
-			list_to_integer(Time)
+			{list_to_integer(Line1),
+			 list_to_integer(Line2),
+			 list_to_integer(Oc1),
+			 list_to_integer(Oc2),
+			 list_to_integer(Time)}
 		catch 
 			_:_ -> 
 				{-1, -1}
@@ -181,8 +181,12 @@ main([
 		case Res of 
 			{-1, -1} -> 
 				usage(1);
-			_ -> 
-				[secer:run([File1,Line1,Var1,Oc1,File2,Line2,Var2,Oc2,IFun,Time])|| IFun<- InputFuns]
+			{L1,L2,O1,O2,T} ->
+				PoisRels = 
+					[{{list_to_atom(File1),L1,{var,list_to_atom(Var1)},O1},
+					  {list_to_atom(File2),L2,{var,list_to_atom(Var2)},O2}}], 
+				[secer:run(PoisRels,IFun,T,sequential,empty)|| IFun<- InputFuns] %NEWFORMAT
+				
 		end;
 main([
 		"-f", File1, 
@@ -197,11 +201,11 @@ main([
 	]) -> 
 
 		Res = try  
-			list_to_integer(Line1), 
-			list_to_integer(Line2),
-			list_to_integer(Oc1),
-			list_to_integer(Oc2),
-			list_to_integer(Time)
+			{list_to_integer(Line1), 
+			 list_to_integer(Line2),
+			 list_to_integer(Oc1),
+			 list_to_integer(Oc2),
+			 list_to_integer(Time)}
 		catch 
 			_:_ -> 
 				{-1, -1}
@@ -209,9 +213,12 @@ main([
 		case Res of 
 			{-1, -1} -> 
 				usage(1);
-			_ -> 
+			{L1,L2,O1,O2,T} -> 
 				InputFuns = secer_input_gen:get_exports(File1),
-				[secer:run([File1,Line1,Var1,Oc1,File2,Line2,Var2,Oc2,IFun,Time])|| IFun<- InputFuns]
+				PoisRels = 
+					[{{list_to_atom(File1),L1,{var,list_to_atom(Var1)},O1},
+					  {list_to_atom(File2),L2,{var,list_to_atom(Var2)},O2}}], 
+				[secer:run(PoisRels,IFun,T,sequential,empty)|| IFun<- InputFuns] %NEWFORMAT
 		end;
 main([
 		"-f", File1, 
@@ -236,8 +243,11 @@ main([
 		case Res of 
 			{-1, -1} -> 
 				usage(1);
-			_ -> 
-				[secer:run([File1,Line1,Var1,"1",File2,Line2,Var2,"1",IFun,Time])|| IFun<- InputFuns]
+			{L1,L2,T} -> 
+				PoisRels = 
+					[{{list_to_atom(File1),L1,{var,list_to_atom(Var1)},1},
+					  {list_to_atom(File2),L2,{var,list_to_atom(Var2)},1}}], 
+				[secer:run(PoisRels,IFun,T,sequential,empty)|| IFun<- InputFuns] %NEWFORMAT
 		end;
 main([
 		"-f", File1, 
@@ -260,9 +270,12 @@ main([
 		case Res of 
 			{-1, -1} -> 
 				usage(1);
-			_ -> 
+			{L1,L2,T} -> 
 				InputFuns = secer_input_gen:get_exports(File1),
-				[secer:run([File1,Line1,Var1,"1",File2,Line2,Var2,"1",IFun,Time])|| IFun<- InputFuns]
+				PoisRels = 
+					[{{list_to_atom(File1),L1,{var,list_to_atom(Var1)},1},
+					  {list_to_atom(File2),L2,{var,list_to_atom(Var2)},1}}], 
+				[secer:run(PoisRels,IFun,T,sequential,empty)|| IFun<- InputFuns] %NEWFORMAT
 		end;
 
 main([
@@ -290,8 +303,11 @@ main([
 		case Res of 
 			{-1, -1} -> 
 				usage(1);
-			_ -> 
-				[secer:run([File1,Line1,Var1,"1",File2,Line2,Var2,Oc2,IFun,Time])|| IFun<- InputFuns]
+			{L1,L2,O2,T} -> 
+				PoisRels = 
+					[{{list_to_atom(File1),L1,{var,list_to_atom(Var1)},1},
+					  {list_to_atom(File2),L2,{var,list_to_atom(Var2)},O2}}], 
+				[secer:run(PoisRels,IFun,T,sequential,empty)|| IFun<- InputFuns] %NEWFORMAT
 		end;
 main([
 		"-f", File1, 
@@ -316,9 +332,12 @@ main([
 		case Res of 
 			{-1, -1} -> 
 				usage(1);
-			_ -> 
+			{L1,L2,O2,T} -> 
 				InputFuns = secer_input_gen:get_exports(File1),
-				[secer:run([File1,Line1,Var1,"1",File2,Line2,Var2,Oc2,IFun,Time])|| IFun<- InputFuns]
+				PoisRels = 
+					[{{list_to_atom(File1),L1,{var,list_to_atom(Var1)},1},
+					  {list_to_atom(File2),L2,{var,list_to_atom(Var2)},O2}}], 
+				[secer:run(PoisRels,IFun,T,sequential,empty)|| IFun<- InputFuns] %NEWFORMAT
 		end;
 main([
 		"-f", File1, 
@@ -345,8 +364,11 @@ main([
 		case Res of 
 			{-1, -1} -> 
 				usage(1);
-			_ -> 
-				[secer:run([File1,Line1,Var1,Oc1,File2,Line2,Var2,"1",IFun,Time])|| IFun<- InputFuns]
+			{L1,L2,O1,T} -> 
+				PoisRels = 
+					[{{list_to_atom(File1),L1,{var,list_to_atom(Var1)},O1},
+					  {list_to_atom(File2),L2,{var,list_to_atom(Var2)},1}}], 
+				[secer:run(PoisRels,IFun,T,sequential,empty)|| IFun<- InputFuns] %NEWFORMAT
 		end;
 main([
 		"-f", File1, 
@@ -370,10 +392,15 @@ main([
 		case Res of 
 			{-1, -1} -> 
 				usage(1);
-			_ -> 
+			{L1,L2,O1,T} -> 
 				InputFuns = secer_input_gen:get_exports(File1),
-				[secer:run([File1,Line1,Var1,Oc1,File2,Line2,Var2,"1",IFun,Time])|| IFun<- InputFuns]
+				PoisRels = 
+					[{{list_to_atom(File1),L1,{var,list_to_atom(Var1)},O1},
+					  {list_to_atom(File2),L2,{var,list_to_atom(Var2)},1}}], 
+				[secer:run(PoisRels,IFun,T,sequential,empty)|| IFun<- InputFuns] %NEWFORMAT
 		end;
+
+% SOLO UN ARCHIVO, ¿eliminar esto?
 main([
 		"-f", File, 
 		"-li", Line, 

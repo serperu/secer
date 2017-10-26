@@ -58,12 +58,18 @@ run(PoisRels,ExecFun,Timeout,CMode,CompareFun) ->
 
 						CountList = dict:to_list(CountDic),
 						io:format("Mismatching test cases: ~p (~p%)\n",[X,Percentage]),
-						io:format("    POIs comparison:\n"),
-						[io:format("\t~p => ~w Errors\n",[Rel,C]) || {Rel,C} <- CountList],
-						io:format("All mismatching results were saved at: ./results/~s.txt\n",[FunName++"_"++Arity]),
+						
+						%io:format("All mismatching results were saved at: ./results/~s.txt\n",[FunName++"_"++Arity]),
 						{ErrorInput,Report} = (catch dict:map(fun(K,V) -> throw({K,V}) end, Different)),
-
 						{Poi1List,Poi2List,ErrorMsg,Poi1,Poi2} = Report,
+						case Poi1 of
+							"User Defined" ->
+								ok;
+							_ ->
+								io:format("    POIs comparison:\n"),
+								[io:format("\t+ ~p => ~w Errors\n",[Rel,C]) || {Rel,C} <- CountList]
+						end,
+
 						{T1,_} = lists:foldl(
 								fun({Id,T},{Acc,P}) ->
 									case dict:find(Id,IdPoiDict) of
@@ -96,8 +102,13 @@ run(PoisRels,ExecFun,Timeout,CMode,CompareFun) ->
 						%ModuleName1 = list_to_atom(filename:basename(File1,".erl")),
 						%ModuleName2 = list_to_atom(filename:basename(File2,".erl")),
 						io:format("Error detected: ~s\n",[ErrorMsg]),
-						io:format("POI: (~p) trace:\n\t ~w\n",[OriginalPoi1,lists:reverse(T1)]),
-						io:format("POI: (~p) trace:\n\t ~w\n",[OriginalPoi2,lists:reverse(T2)]),
+						case Poi1 of
+							"User Defined" ->
+								ok;
+							_ ->
+								io:format("POI: (~p) trace:\n\t ~w\n",[OriginalPoi1,lists:reverse(T1)]),
+								io:format("POI: (~p) trace:\n\t ~w\n",[OriginalPoi2,lists:reverse(T2)])
+						end,
 						io:format("~s\n",["----------------------------"])
 				end,%;
 

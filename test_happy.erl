@@ -17,3 +17,20 @@ rel2() ->
 
 funs() ->
 	"[main/2]".
+
+comp_perf(TO,TN) ->
+	ZippedList = lists:zip(TO,TN), 
+	lists:foldl(
+		fun
+			(_,{false,Msg}) ->
+				{false,Msg};
+			({{_,VO},{_,VN}},_) ->
+				case VO of 
+					VN ->
+						true; 
+					_ ->
+						{false,"Bad Calculation"} 
+				end
+		end,
+	true , 
+	ZippedList).

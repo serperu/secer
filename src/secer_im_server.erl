@@ -41,9 +41,9 @@ loop(State) ->
 					Pid ! {Ref,true}
 			end,
 			loop(State);
-		{existing_trace,Trace,Ref,Pid} ->
+		{existing_trace,Input,Trace,Ref,Pid} ->
 			case Trace of
-				[] ->
+				{[],[]} ->
 					Pid ! {Ref,true};
 				_ ->
 					Exists = dict:fold(
@@ -59,7 +59,16 @@ loop(State) ->
 						State#state.valued_trace),
 					Pid ! {Ref,Exists}
 			end,
-			loop(State);
+			NewState =  
+				State#state
+				{
+					valued_trace =
+						dict:store(
+							Input,
+							Trace,
+							State#state.valued_trace)
+				},
+			loop(NewState);
 		{add,Input,Trace,Cvg} ->
 			NewState = case Trace of
 				[] ->
@@ -92,7 +101,8 @@ loop(State) ->
 				undef ->
 			 		compare_default(Trace1,Trace2,State,fun equality/3);
 			 	F ->
-			 		compare_user(Trace1,Trace2,State,F)
+			 		compare_whole_trace(Trace1,Trace2,State#state.id_poi_dic,F)
+			 		%compare_user(Trace1,Trace2,State,F)
 			end,
 			NewState = case CompareRes of
 				true ->
@@ -103,7 +113,7 @@ loop(State) ->
 								empty_trace =
 									dict:store(
 										Input,
-										Trace1,
+										{Trace1,Trace2},
 										State#state.empty_trace),
 								same_trace = 
 									dict:store(
@@ -114,11 +124,11 @@ loop(State) ->
 						_ ->
 							State#state
 							{
-								valued_trace =
-									dict:store(
-										Input,
-										Trace1,
-										State#state.valued_trace),
+								% valued_trace =
+								% 	dict:store(
+								% 		Input,
+								% 		{Trace1,Trace2},
+								% 		State#state.valued_trace),
 								same_trace = 
 									dict:store(
 										Input,
@@ -129,11 +139,11 @@ loop(State) ->
 				{error_no_relation,P1,P2} ->
 					State#state
 					{
-						valued_trace =
-							dict:store(
-								Input,
-								Trace1,
-								State#state.valued_trace),
+						% valued_trace =
+						% 	dict:store(
+						% 		Input,
+						% 		{Trace1,Trace2},
+						% 		State#state.valued_trace),
 						different_trace = 
 							dict:store(
 								Input,
@@ -143,11 +153,11 @@ loop(State) ->
 				{error_no_value,P1,P2} ->
 					State#state
 					{
-						valued_trace =
-							dict:store(
-								Input,
-								Trace1,
-								State#state.valued_trace),
+						% valued_trace =
+						% 	dict:store(
+						% 		Input,
+						% 		{Trace1,Trace2},
+						% 		State#state.valued_trace),
 						different_trace = 
 							dict:store(
 								Input,
@@ -157,25 +167,39 @@ loop(State) ->
 				{error,P1,P2} ->
 					State#state
 					{
-						valued_trace =
-							dict:store(
-								Input,
-								Trace1,
-								State#state.valued_trace),
+						% valued_trace =
+						% 	dict:store(
+						% 		Input,
+						% 		{Trace1,Trace2},
+						% 		State#state.valued_trace),
 						different_trace = 
 							dict:store(
 								Input,
 								{Trace1,Trace2,"Error found",P1,P2},
 								State#state.different_trace)
 					};
+				{false,Msg} ->
+					State#state
+					{
+						% valued_trace =
+						% 	dict:store(
+						% 		Input,
+						% 		{Trace1,Trace2},
+						% 		State#state.valued_trace),
+						different_trace = 
+							dict:store(
+								Input,
+								{Trace1,Trace2,Msg,"User Defined","User Defined"},
+								State#state.different_trace)
+					};
 				{false,Msg,P1,P2} ->
 					State#state
 					{
-						valued_trace =
-							dict:store(
-								Input,
-								Trace1,
-								State#state.valued_trace),
+						% valued_trace =
+						% 	dict:store(
+						% 		Input,
+						% 		{Trace1,Trace2},
+						% 		State#state.valued_trace),
 						different_trace = 
 							dict:store(
 								Input,
@@ -185,11 +209,11 @@ loop(State) ->
 				{different_length_trace,P1,P2} ->
 					State#state
 					{
-						valued_trace =
-							dict:store(
-								Input,
-								Trace1,
-								State#state.valued_trace),
+						% valued_trace =
+						% 	dict:store(
+						% 		Input,
+						% 		{Trace1,Trace2},
+						% 		State#state.valued_trace),
 						different_trace = 
 							dict:store(
 								Input,
@@ -243,6 +267,25 @@ compare_default([{Id1,Value1}|Trace1],[{Id2,Value2}|Trace2],S,F) ->
 			Error
 	end.
 
+compare_whole_trace(T1,T2,Dic,F) ->
+	%{ok,POI2} = dict:find(Id2,S#state.id_poi_dic),
+	{NewT1,_} = lists:mapfoldl(
+		fun({Id,V},D) ->
+			{ok,POI} = dict:find(Id,D),
+			{{POI,V},D}
+		end,
+		Dic,
+		T1),
+	{NewT2,_} = lists:mapfoldl(
+		fun({Id,V},D) ->
+			{ok,POI} = dict:find(Id,D),
+			{{POI,V},D}
+		end,
+		Dic,
+		T2),
+	F(NewT1,NewT2).
+
+% COMPARACION EN CADA ELEMENTO DE LA TRAZA (AUN NO IMPLEMENTADO EXPLICITAMENTE)
 compare_user([],[],_,_) -> true;
 compare_user([],[{Id2,Value2}|Trace2],S,F) ->
 	{ok,POI2} = dict:find(Id2,S#state.id_poi_dic),

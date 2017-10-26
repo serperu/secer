@@ -47,9 +47,10 @@ main(POIList,CompareFun) ->
 			end || POI <- LineColPOIsOld],
 
 		ListOld = LTOPoisOld ++ LCPoisOld,
+		
 		OrderIdPoiListOld = lists:sort(fun({A,_}, {B,_}) -> A =< B end, ListOld),
 		IdPoiDict = dict:from_list(OrderIdPoiListOld),
-		
+
 		get_replaced_AST(FileOld,OrderIdPoiListOld,AnnASTOld),
 
 		%NEW FILE
@@ -258,27 +259,27 @@ poi_map(Poi) ->
 			Poi
 	end.
 
-find_explicit_pois(Root,{_,Line,{Type,Poi_Name},Oc}) ->
+find_explicit_pois(Root,{File,Line,{Type,Poi_Name},Oc}) ->
 	try 
 		case erl_syntax:type(Root) of
 			function ->
 				children_list(erl_syntax:subtrees(Root),Line,Poi_Name,Type,Oc,1),
-				{undef,Line,{Type,Poi_Name},Oc};
+				{File,Line,{Type,Poi_Name},Oc};
 			_ ->
-				{undef,Line,{Type,Poi_Name},Oc}
+				{File,Line,{Type,Poi_Name},Oc}
 		end
 	catch
 		[Ann] -> 
 			throw(Ann#nodeinfo.id)
 	end;
-find_explicit_pois(Root,{_,Line,Type,Oc}) ->
+find_explicit_pois(Root,{File,Line,Type,Oc}) ->
 	try 
 		case erl_syntax:type(Root) of
 			function ->
 				children_list(erl_syntax:subtrees(Root),Line,null,Type,Oc,1),
-				{undef,Line,Type,Oc};
+				{File,Line,Type,Oc};
 			_ ->
-				{undef,Line,Type,Oc}
+				{File,Line,Type,Oc}
 		end
 	catch
 		[Ann] -> 
@@ -376,7 +377,7 @@ instrument_AST(AST,PoiId) ->
 			ok;
 		false ->
 			%io:format("No variable ~s occurrence ~p found in line ~p\n",[PoiName,Oc,Line]),
-			io:format("The POI with the Id:~p is not present in the indicated location\n",[PoiId]),
+			io:format("The POI:~p is not present in the indicated location\n",[PoiId]),
 			secer ! die,
 			exit(0)
 	end,
