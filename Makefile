@@ -4,10 +4,14 @@ ERLC_PATH = $(shell dirname $(lastword $(ERLC_DIR)))
 
 compile:
 	@chmod +x secer
-	@cd cuter; ./fetch_protoc.sh; git submodule init && git submodule update; git submodule foreach make; autoconf; ./configure --with-protoc=$(ROOT_DIR)/cuter/lib/protoc-3.2.0/bin/protoc; make depend; make
+	@mkdir -p tmp
+	@touch ./tmp/nocuter.txt
 	@cd cuter/lib/proper; make
 	@dialyzer --build_plt --apps erts kernel stdlib crypto mnesia sasl 
 	@make csecer
+	@cd cuter; ./fetch_protoc.sh; git submodule init && git submodule update; git submodule foreach make; autoconf; ./configure --with-protoc=$(ROOT_DIR)/cuter/lib/protoc-3.2.0/bin/protoc; make depend; make
+	@rm -f ./tmp/nocuter.txt
+
 
 csecer:
 	@rm -Rf ebin
