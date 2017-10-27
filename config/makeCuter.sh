@@ -1,7 +1,7 @@
 #!/bin/bash
 
 {
-	cd ../cuter &&
+	cd cuter &&
 	./fetch_protoc.sh && 
 	git submodule init && git submodule update && 
 	git submodule foreach make && 
@@ -9,7 +9,10 @@
 	./configure --with-protoc=$1/cuter/lib/protoc-3.2.0/bin/protoc && 
 	make depend && 
 	make &&
-	rm -f ./config/nocuter.txt 
+	rm -f ../config/nocuter.txt &&
+	echo "************************************" &&
+	echo "* SecEr was successfully installed *" &&
+	echo "************************************"
 } || {
 	echo "************************************************"
 	echo "* CutEr could not be properly installed, SecEr *"

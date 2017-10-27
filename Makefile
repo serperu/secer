@@ -8,10 +8,9 @@ compile:
 	@mkdir -p tmp
 	@touch ./config/nocuter.txt
 	@cd cuter/lib/proper; make
-	#@dialyzer --build_plt --apps erts kernel stdlib crypto mnesia sasl 
+	@dialyzer --build_plt --apps erts kernel stdlib crypto mnesia sasl 
 	@make csecer 
 	@./config/makeCuter.sh $(ROOT_DIR)
-
 
 csecer:
 	@rm -Rf ebin
