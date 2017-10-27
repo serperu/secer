@@ -6,6 +6,7 @@ compile:
 	@chmod +x secer
 	@cd cuter; ./fetch_protoc.sh; git submodule init && git submodule update; git submodule foreach make; autoconf; ./configure --with-protoc=$(ROOT_DIR)/cuter/lib/protoc-3.2.0/bin/protoc; make depend; make
 	@cd cuter/lib/proper; make
+	@dialyzer --build_plt --apps erts kernel stdlib crypto mnesia sasl 
 	@make csecer
 
 csecer:

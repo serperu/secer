@@ -250,28 +250,30 @@ analyze_types(FileName,FunName,Arity) ->
 			DictOfDicts = generate_all_clause_dicts(ParamNames,InputTypes),
 			{ParamNames,DictOfDicts}
 	end.
-execute_cuter0(ModuleName,FunName,ParamClauses,Dicts,TimeOut) ->
-	Params = lists:nth(rand:uniform(length(ParamClauses)),ParamClauses),
-	{ok,Dic} = dict:find(Params,Dicts),
+% execute_cuter0(ModuleName,FunName,ParamClauses,Dicts,TimeOut) ->
+% 	Params = lists:nth(rand:uniform(length(ParamClauses)),ParamClauses),
+% 	{ok,Dic} = dict:find(Params,Dicts),
 
-	Input = (catch generate_instance({Dic,Params})),
-	%[Input].
-	%Input = [[7,9],[7,5]].
+% 	Input = (catch generate_instance({Dic,Params})),
+% 	%[Input].
+% 	%Input = [[7,9],[7,5]].
 	
-	%CuterInputs = get_cuter_inputs(ModuleName,FunName,Input,TimeOut),
-	CuterInputs = get_cuter_inputs0(ModuleName,undef,FunName,Input,TimeOut),
-	[Input|CuterInputs].
+% 	%CuterInputs = get_cuter_inputs(ModuleName,FunName,Input,TimeOut),
+% 	CuterInputs = get_cuter_inputs0(ModuleName,undef,FunName,Input,TimeOut),
+% 	[Input|CuterInputs].
 execute_cuter(ModuleName1,ModuleName2,FunName,ParamClauses,Dicts,TimeOut) ->
 	Params = lists:nth(rand:uniform(length(ParamClauses)),ParamClauses),
 	{ok,Dic} = dict:find(Params,Dicts),
 
 	Input = (catch generate_instance({Dic,Params})),
-	%[Input].
-	%Input = [[7,9],[7,5]].
 	
-	%CuterInputs = get_cuter_inputs(ModuleName,FunName,Input,TimeOut),
-	CuterInputs = get_cuter_inputs(ModuleName1,ModuleName2,FunName,Input,TimeOut),
-	[Input|CuterInputs].
+	case file:open("./tmp/nocuter.txt",[read]) of
+		{ok,_} ->
+			[Input];
+		{error,_} ->
+			CuterInputs = get_cuter_inputs(ModuleName1,ModuleName2,FunName,Input,TimeOut),
+			[Input|CuterInputs]
+	end.
 
 instrument_code(PoisRels,CompareFun) -> %TODO =>MEJORABLE<= No hacer reset para luego unregister. Controlar eso
 	try
@@ -634,42 +636,42 @@ is_variable(N) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % EXECUTE CUTER AND GET THE GENERATED INPUTS %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-get_cuter_inputs0(_,ModuleName,FunName,Input,TimeOut) ->
-	compile:file(ModuleName,[debug_info]),
-	Self = self(),
-	Ref = make_ref(),
-	{ok, Fd} = file:open(?TMP_PATH++"cuter.txt", [write]),
-	register(cuterProcess,spawn(
-		fun() ->
-			group_leader(Fd, self()),
-			catch cuter:run(ModuleName,FunName,Input,25,[{number_of_pollers,1},{number_of_solvers,1}]),
-			Self ! {finish,Ref}
-		end)),
-	Result = receive
-		{finish,Ref} ->
-			RefC = make_ref(),
-			cuterIn ! {get_results,RefC,Self},
-			cuterIn ! exit,
-			receive
-				{RefC,[]} ->	
-					[];
-				{RefC,Inputs} ->
-					Inputs
-			end
-	after TimeOut * 1000 -> 
-			timer:exit_after(0,cuterProcess,kill),
-			os:cmd("rm -Rf ./temp"),
-			RefCut = make_ref(),
-			cuterIn ! {get_results,RefCut,Self},
-			receive
-				{RefCut,[]} ->	
-					[];
-				{RefCut,Inputs} ->
-					Inputs
-			end
-	end,
-	file:close(Fd),
-	Result.
+% get_cuter_inputs0(_,ModuleName,FunName,Input,TimeOut) ->
+% 	compile:file(ModuleName,[debug_info]),
+% 	Self = self(),
+% 	Ref = make_ref(),
+% 	{ok, Fd} = file:open(?TMP_PATH++"cuter.txt", [write]),
+% 	register(cuterProcess,spawn(
+% 		fun() ->
+% 			group_leader(Fd, self()),
+% 			catch cuter:run(ModuleName,FunName,Input,25,[{number_of_pollers,1},{number_of_solvers,1}]),
+% 			Self ! {finish,Ref}
+% 		end)),
+% 	Result = receive
+% 		{finish,Ref} ->
+% 			RefC = make_ref(),
+% 			cuterIn ! {get_results,RefC,Self},
+% 			cuterIn ! exit,
+% 			receive
+% 				{RefC,[]} ->	
+% 					[];
+% 				{RefC,Inputs} ->
+% 					Inputs
+% 			end
+% 	after TimeOut * 1000 -> 
+% 			timer:exit_after(0,cuterProcess,kill),
+% 			os:cmd("rm -Rf ./temp"),
+% 			RefCut = make_ref(),
+% 			cuterIn ! {get_results,RefCut,Self},
+% 			receive
+% 				{RefCut,[]} ->	
+% 					[];
+% 				{RefCut,Inputs} ->
+% 					Inputs
+% 			end
+% 	end,
+% 	file:close(Fd),
+% 	Result.
 
 get_cuter_inputs(ModuleName1,ModuleName2,FunName,Input,TimeOut) ->
 	compile:file(ModuleName2,[debug_info]),

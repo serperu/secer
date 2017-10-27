@@ -67,7 +67,7 @@ run(PoisRels,ExecFun,Timeout,CMode,CompareFun) ->
 								ok;
 							_ ->
 								io:format("    POIs comparison:\n"),
-								[io:format("\t+ ~p => ~w Errors\n",[Rel,C]) || {Rel,C} <- CountList]
+								[io:format("\t+ ~p => ~w Errors\n",[{poi_translation(POI1),poi_translation(POI2)},C]) || {{POI1,POI2},C} <- CountList]
 						end,
 
 						{T1,_} = lists:foldl(
@@ -110,10 +110,10 @@ run(PoisRels,ExecFun,Timeout,CMode,CompareFun) ->
 								io:format("POI: (~p) trace:\n\t ~w\n",[OriginalPoi2,lists:reverse(T2)])
 						end,
 						io:format("~s\n",["----------------------------"])
-				end,%;
+				end;
 
-				{ok,Fd} = file:open("./tmp/Results.txt",[write]),
-				io:format(Fd,"~w.\n~w.",[Same,Different]);
+				% {ok,Fd} = file:open("./tmp/Results.txt",[write]),
+				% io:format(Fd,"~w.\n~w.",[Same,Different]);
 
 				% ReadeableFileName = "./results/"++FunName++"_"++Arity++".txt",
 				% {ok,Fd2} = file:open(ReadeableFileName,[write]),
@@ -181,7 +181,8 @@ run(PoisRels,ExecFun,Timeout,CMode,CompareFun) ->
 		file:delete("./tmp/"++FileOld),
 		file:delete("./tmp/"++FileNew),
 
-		file:delete(filename:basename(FileOld,".erl")++".beam")
+		file:delete(filename:basename(FileOld,".erl")++".beam"),
+		file:delete(filename:basename(FileNew,".erl")++".beam")
 	end.
 
 poi_translation(Poi) ->
