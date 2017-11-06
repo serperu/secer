@@ -11,3 +11,13 @@ cuter/Makefile
 cuter/config.status
 cuter/config.log
 cuter/autom4te.cache/requests
+
+test_*.beam
+test_*.erl
+
+*.dump
+
+examples-edd/*
+output_commands
+output
+last
