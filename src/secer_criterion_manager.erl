@@ -13,6 +13,11 @@ main(POIList,CompareFun) ->
 		FileOld = atom_to_list(element(1,lists:nth(1,PoiListOld))),
 		FileNew = atom_to_list(element(1,lists:nth(1,PoiListNew))),
 
+		load_dependencies(FileOld,FileNew),
+		
+		ModuleNameOld = list_to_atom(filename:basename(FileOld,".erl")),
+		ModuleNameNew = list_to_atom(filename:basename(FileNew,".erl")),
+
 		%OLD FILE
 		{LineColPOIsOld,ExplicitPOIsOld} = lists:foldl(
 			fun(P,{LCP,EP}) ->
@@ -39,9 +44,9 @@ main(POIList,CompareFun) ->
 			begin 
 				{_,Program} = read_expression(POI),
 				{_,{SLine,_},_} = POI,
-				{ok,ChangedFd} = file:open(?TMP_PATH++FileOld,[write,{encoding, unicode}]),
+				{ok,ChangedFd} = file:open(?TMP_PATH++atom_to_list(ModuleNameOld)++".erl",[write,{encoding, unicode}]),
 				io:format(ChangedFd,"~s",[Program]),
-				{ok,AST0} = epp:parse_file(?TMP_PATH++FileOld,[],[]),
+				{ok,AST0} = epp:parse_file(?TMP_PATH++atom_to_list(ModuleNameOld)++".erl",[],[]),
 				{{FunName,FunArity},Path} = (catch lists:foldl(fun find_line_col_pois/2,{SLine,poi_ref},AST0)),
 				{get_matching_id(FunName,FunArity,Path,AnnASTOld),POI} 
 			end || POI <- LineColPOIsOld],
@@ -52,7 +57,6 @@ main(POIList,CompareFun) ->
 		IdPoiDict = dict:from_list(OrderIdPoiListOld),
 
 		get_replaced_AST(FileOld,OrderIdPoiListOld,AnnASTOld),
-
 		%NEW FILE
 		{LineColPOIsNew,ExplicitPOIsNew} = lists:foldl(
 			fun(P,{LCP,EP}) ->
@@ -78,9 +82,9 @@ main(POIList,CompareFun) ->
 			begin 
 				{_,Program} = read_expression(POI),
 				{_,{SLine,_},_} = POI,
-				{ok,ChangedFd} = file:open(?TMP_PATH++FileNew,[write,{encoding, unicode}]),
+				{ok,ChangedFd} = file:open(?TMP_PATH++atom_to_list(ModuleNameNew)++".erl",[write,{encoding, unicode}]),
 				io:format(ChangedFd,"~s",[Program]),
-				{ok,AST0} = epp:parse_file(?TMP_PATH++FileNew,[],[]),
+				{ok,AST0} = epp:parse_file(?TMP_PATH++atom_to_list(ModuleNameNew)++".erl",[],[]),
 				{{FunName,FunArity},Path} = (catch lists:foldl(fun find_line_col_pois/2,{SLine,poi_ref},AST0)),
 				{get_matching_id(FunName,FunArity,Path,AnnASTNew),POI} 
 			end || POI <- LineColPOIsNew],
@@ -99,6 +103,43 @@ main(POIList,CompareFun) ->
 				input_manager ! {set_fun,CompareFun}
 		end.
 
+%%%%%%%%%%%%%%%%%%%%%%
+%% LOAD DEPENDENCES %%
+%%%%%%%%%%%%%%%%%%%%%%
+load_dependencies(FileOld,FileNew) ->
+	OldDir = filename:dirname(FileOld),
+	NewDir = filename:dirname(FileNew),
+	case OldDir of
+		NewDir ->
+			{ok,Files} = file:list_dir(OldDir),
+			[begin
+				case filename:extension(F) of
+					".erl" ->
+						ModuleName = filename:basename(F,".erl"),
+						compile:file(OldDir++"/"++F,[{outdir,?TMP_PATH}]),
+						code:purge(list_to_atom(ModuleName)),
+						code:load_abs(?TMP_PATH++ModuleName);
+					_ -> 
+						ok
+				end
+			end || F <- Files];
+		_ ->
+			{ok,FilesO} = file:list_dir(OldDir),
+			{ok,FilesN} = file:list_dir(NewDir),
+			Files = FilesO ++ FilesN,
+			[begin
+				case filename:extension(F) of
+					".erl" ->
+						ModuleName = filename:basename(F,".erl"),
+						compile:file(F,[{outdir,?TMP_PATH}]),
+						code:purge(list_to_atom(ModuleName)),
+						code:load_abs(?TMP_PATH++ModuleName);
+					_ -> 
+						ok
+				end
+			end || F <- Files]
+	end.
+
 %%%%%%%%%%%%%%%%%%%%%
 %%% LINE COL POIS %%%
 %%%%%%%%%%%%%%%%%%%%%
@@ -115,9 +156,10 @@ read_expression(Poi) ->
 	L1Replaced = string:substr(L1,ColI),
 	PoiExpr = case LineI of
 		LineF ->
-			string:substr(L1Replaced,1,ColF+1 - ColI);
+			%string:substr(L1Replaced,1,ColF+1 - ColI);
+			string:substr(L1Replaced,1,ColF - ColI);
 		_ ->
-			ModList = modifyLastElem(T,ColF+1,[]),
+			ModList = modifyLastElem(T,ColF,[]),
 			lists:foldr(
 				fun(L,S) ->
 					lists:concat([S,"\n",L])
@@ -132,14 +174,14 @@ read_expression(Poi) ->
 		LineF ->
 			ModLine = lists:nth(LineI,Tokens),
 			Begin = string:substr(ModLine,1,ColI-1),
-			End = string:substr(ModLine,ColF+1,length(ModLine)-ColF),
+			End = string:substr(ModLine,ColF,length(ModLine)-(ColF-1)),
 			[Begin++"poi_ref"++End];
 		_ ->
 			[FirstLine|Rest] = lists:sublist(Tokens,LineI,LineF-LineI+1),
 			Begin = string:substr(FirstLine,1,ColI-1),
 
 			Last = lists:last(Rest),
-			End = string:substr(Last,ColF+1,length(Last)-ColF),
+			End = string:substr(Last,ColF,length(Last)-(ColF-1)),
 			[Begin++"poi_ref"++End]
 	end,
 	RemainingTail = lists:sublist(Tokens,LineF+1,length(Tokens)-LineF),
@@ -255,6 +297,8 @@ poi_map(Poi) ->
 			{F,L,case_expr,O};
 		{F,L,call,O} ->
 			{F,L,application,O};
+		{F,L,'try',O} ->
+			{F,L,try_expr,O};
 		_ ->
 			Poi
 	end.
@@ -303,10 +347,10 @@ child(L,{Line,null,ExprType,Oc,CurrentOc}) ->
 				{T,Li} when O == CurOc -> 
 					throw(erl_syntax:get_ann(E));
 				{T,Li} ->
-					{_,_,_,_,NewCurrentOc} = children_list(erl_syntax:subtrees(E),Li,Poi,T,O,CurOc),
+					{_,_,_,_,NewCurrentOc} = children_list(erl_syntax:subtrees(E),Li,Poi,T,O,CurOc+1),
 					{Li,Poi,T,O,NewCurrentOc+1};
 				_ ->
-					{_,_,_,_,NewCurrentOc} =children_list(erl_syntax:subtrees(E),Li,Poi,T,O,CurOc),
+					{_,_,_,_,NewCurrentOc} = children_list(erl_syntax:subtrees(E),Li,Poi,T,O,CurOc),
 					{Li,Poi,T,O,NewCurrentOc}
 			end
 		end,

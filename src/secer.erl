@@ -189,6 +189,8 @@ poi_translation(Poi) ->
 	case Poi of
 		{F,L,application,O} ->
 			{F,L,call,O};
+		{F,L,try_expr,O} ->
+			{F,L,'try',O};
 		{F,L,if_expr,O} ->
 			{F,L,'if',O};
 		{F,L,case_expr,O} ->

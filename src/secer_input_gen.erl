@@ -15,8 +15,27 @@ main(PoisRels,ExecFun,Time,CMode,CompareFun) ->
 		FileOld = atom_to_list(element(1,Old)),
 		FileNew = atom_to_list(element(1,New)),
 
+		ResComp1 = compile:file(FileOld,[debug_info]),
+		ResComp2 = compile:file(FileNew,[debug_info]),
+
 		ModuleName1 = list_to_atom(filename:basename(FileOld,".erl")),
 		ModuleName2 = list_to_atom(filename:basename(FileNew,".erl")),
+
+		case {ResComp1,ResComp2} of
+			{error,error} ->
+				io:format("Module ~p couldn't be compiled due to syntax errors\nModule ~p couldn't be compiled due to syntax errors\n",[ModuleName1,ModuleName2]),
+				secer ! die,
+				exit(0);
+			{error,_} ->
+				io:format("Module ~p couldn't be compiled due to syntax errors\n",[ModuleName1]),
+				secer ! die,
+				exit(0);
+			{_,error} ->
+				io:format("Module ~p couldn't be compiled due to syntax errors\n",[ModuleName2]),
+				secer ! die,
+				exit(0);
+			_ -> ok
+		end,
 
 		{FunName,Arity} = divide_function(ExecFun),
 
@@ -37,6 +56,7 @@ main(PoisRels,ExecFun,Time,CMode,CompareFun) ->
 
 				% PART 2
 				instrument_code(PoisRels,CompareFun),
+
 				{ok, Fd} = file:open(?TMP_PATH++"cuter.txt", [write]),
 				Self = self(),
 				Ref = make_ref(),
@@ -52,25 +72,36 @@ main(PoisRels,ExecFun,Time,CMode,CompareFun) ->
 
 				ModTmp1 = list_to_atom(filename:basename(FileOld,".erl")++"Tmp"),
 				ModTmp2 = list_to_atom(filename:basename(FileNew,".erl")++"Tmp"),
-				NTInputs = lists:foldl(
+				Queue = lists:foldl(
 					fun(I,L) ->
 						RefEx = make_ref(),
-						{Trace1,Trace2} = execute_input(ModTmp1,ModTmp2,FunName,I,CMode),
+						{Trace1,Trace2,Equals} = execute_input(ModTmp1,ModTmp2,FunName,I,CMode),
 						input_manager ! {existing_trace,I,{Trace1,Trace2},RefEx,self()},
 						receive
 							{RefEx,true} ->
 								L;
 							{RefEx,false} ->
-								[I|L]
+								{Pri,Last} = L,
+								case Equals of
+									true ->
+										{Pri,[I|Last]};
+									_ ->
+										{[I|Pri],Last}
+								end
 						end
 					end,
-					[],
+					{[],[]},
 					Inputs),
-				[begin 
-					{Clause,Dic} = identify_clause_input(ParamClauses,TypeDicts,NTI),
-					validate_input(ModuleName1,ModuleName2,FunName,NTI,Clause,Dic,CMode)
-				end || NTI<- NTInputs],
-				gen_random_inputs(ModuleName1,ModuleName2,FunName,ParamClauses,TypeDicts,0,CMode)
+				Input = 
+					case Queue of
+						{[PH|PT],_} ->
+							PH;
+						{[],[LH|LT]} ->
+							LH
+					end,
+				{Clause,Dic} = identify_clause_input(ParamClauses,TypeDicts,Input),
+				validate_input(ModTmp1,ModTmp2,FunName,Queue,Clause,Dic,CMode),
+				gen_random_inputs(ModTmp1,ModTmp2,FunName,ParamClauses,TypeDicts,0,CMode)
 		end
 	catch 
 		E:R ->
@@ -228,7 +259,7 @@ main(PoisRels,ExecFun,Time,CMode,CompareFun) ->
 
 analyze_types(FileName,FunName,Arity) ->
 	ModuleName = list_to_atom(filename:basename(FileName,".erl")),
-	compile:file(ModuleName,[debug_info]),
+	% compile:file(ModuleName,[debug_info]),
 	{ok,Abstract} = smerl:for_file(FileName),
 	Exports = smerl:get_exports(Abstract),
 	case is_exported(Exports,FunName,Arity) of
@@ -243,10 +274,13 @@ analyze_types(FileName,FunName,Arity) ->
 						andalso 
 						element(2,X) == Arity 
 					end, 
-					FuncTypes),		
+					FuncTypes),	
+
 			{_Origin,InputTypes} = get_inputs(FunctionSpec),
-	
 			ParamNames = get_parameters(Abstract,FunName,Arity),
+			% printer(ParamNames),
+			% printer(InputTypes),
+			% io:get_line("STOP\n"),
 			DictOfDicts = generate_all_clause_dicts(ParamNames,InputTypes),
 			{ParamNames,DictOfDicts}
 	end.
@@ -405,6 +439,8 @@ get_type(Type) ->
 			erl_types:t_nil();
 		any -> 
 			erl_types:t_any();
+		{binary,_,unknown} ->
+			erl_types:t_binary();
 		_ -> 
 			throw("Non contempled type")
 	end.
@@ -467,6 +503,9 @@ get_param_name(P) ->
 % MAP PARAMETERS AND TYPES %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%
 generate_all_clause_dicts(ParamNames,ParamTypes) ->
+	% printer(ParamNames),
+	% printer(ParamTypes),
+	% io:get_line("STOP\n"),
 	NewList = lists:map(
 			fun (ParamList) ->
 				{ParamList,join_names_types(ParamList,ParamTypes,dict:new())}
@@ -489,6 +528,12 @@ join_names_types([Name|Names],[Type|Types],Dic) ->
 					NewDic = dict:store(Name,list,Dic),
 					[HeadType,TailType] = NameTypes,
 					NewDic2 = join_names_types_lists(Name,{HeadType,TailType},NewDic),
+					join_names_types(Names,Types,NewDic2);
+				union ->
+					TupleNameType = get_tuple_type(NameTypes),
+					NewDic = dict:store(Name,tuple,Dic),
+					{_,TupleElemTypes,_} = TupleNameType,
+					NewDic2 = join_names_types(tuple_to_list(Name),TupleElemTypes,NewDic),
 					join_names_types(Names,Types,NewDic2)
 			end;
 		_ ->
@@ -517,6 +562,18 @@ join_names_types_lists(Name,{HType,TType},Dic) ->
 			join_names_types([Tail],[TType],NewDic)
 	end.	
 
+get_tuple_type(ListTypes) ->
+	lists:foldl(
+		fun(E,Acc) ->
+			case E of
+				{tuple,_,_} ->
+					E;
+				_ ->
+					Acc
+			end
+		end,
+		0,
+		ListTypes).
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % CREATE AN INSTANCE OF THE PARAMETERS %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -613,6 +670,8 @@ generate_proper_type(Type) ->
 			proper_types:union(lists:map(fun generate_proper_type/1, List));
 		{nil,[],unknown} ->	
 			proper_types:exactly([]);
+		{binary,_,unknown} ->
+			proper_types:binary();
 		any ->	
 			proper_types:any()
 	end.
@@ -674,7 +733,6 @@ is_variable(N) ->
 % 	Result.
 
 get_cuter_inputs(ModuleName1,ModuleName2,FunName,Input,TimeOut) ->
-	compile:file(ModuleName2,[debug_info]),
 	Self = self(),
 	Ref = make_ref(),
 	{ok, Fd} = file:open(?TMP_PATH++"cuter.txt", [write]),
@@ -742,14 +800,6 @@ remove_duplicated(List) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % EXECUTE AN INPUT WITH TRACE %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-execute(MP,Fun,Input) ->
-	catch apply(MP,Fun,Input),
-	Ref = make_ref(),
-	tracer ! {get_results,Ref,self()},
-	receive
-		{Ref,X} -> X
-	end.
-
 execute_input(Mod,FunName,Input,Cvg) ->
 	ScValue = execute(Mod,FunName,Input),
 	input_manager ! {add,Input,ScValue,Cvg},
@@ -758,22 +808,48 @@ execute_input(Mod,FunName,Input,Cvg) ->
 execute_input(Mod1,Mod2,FunName,Input,Mode) ->
 	ScValue1 = execute(Mod1,FunName,Input),
 	ScValue2 = execute(Mod2,FunName,Input),
-	input_manager ! {add,Input,ScValue1,ScValue2,Mode},
-	{ScValue1,ScValue2}.
-% execute([Input|Rest],M,F) ->	EXECUTION WITH TIMEOUT (FOR INFINITY LOOPS)
-%     Pid = spawn(M,F,Input),
-%     register(test,Pid),
-%     timer:sleep(60), 
-%     Pid2 = whereis(test),
+
+	case {ScValue1,ScValue2} of
+		{_,timeouted} ->
+			input_manager ! {add,Input,timeouted,Mode},
+			{timeouted,timeouted};
+		{timeouted,_} ->
+			input_manager ! {add,Input,timeouted,Mode},
+			{timeouted,timeouted};
+		_ ->
+			RefEq = make_ref(),
+			input_manager ! {add,Input,ScValue1,ScValue2,Mode,self(),RefEq},
+			receive 
+				{RefEq,Equals} ->
+					Equals
+			end,
+			{ScValue1,ScValue2,Equals}
+	end.
+
+% execute(MP,Fun,Input) ->	%EXECUTION WITH TIMEOUT (FOR INFINITE LOOPS)
+%     Pid = spawn(MP,Fun,Input),
+%     register(exec,Pid),
+%     timer:sleep(100), 
+%     Pid2 = whereis(exec),
 %     case Pid2 of
 %         undefined -> 
-%             finished;
+%             Ref = make_ref(),
+% 			tracer ! {get_results,Ref,self()},
+% 			receive
+% 				{Ref,X} -> X
+% 			end;
 %         Pid -> 
 %             timer:exit_after(0,Pid,kill), 
-%             finished
-%     end,
-%     execute(Rest,M,F).
+%             timeouted
+%     end.
 
+execute(MP,Fun,Input) ->
+	catch apply(MP,Fun,Input),
+	Ref = make_ref(),
+	tracer ! {get_results,Ref,self()},
+	receive
+		{Ref,X} -> X
+	end.
 
 %%%%%%%%%%%%%%%%%%%%
 % MEASURE COVERAGE %
@@ -797,31 +873,14 @@ executed_lines([Line|Remaining],Executed) ->
 		1 -> executed_lines(Remaining,Executed+1)
 	end.
 
-%%%%%%%%%%%%%%%%%%%
-% GENERATE RANDOM %
-%%%%%%%%%%%%%%%%%%%
-
-gen_random_inputs(Mod,empty,Fun,ParamClauses,Dicts,N,_) ->
-	gen_random_inputs(Mod,Fun,ParamClauses,Dicts,N);
-gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,Dicts,10000,Mode) ->
-	NewDicts = dict:map(
-		fun(_,V) ->
-			increment_integer_types(V)
-		end,
-		Dicts),
-	gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,NewDicts,0,Mode);
-gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,Dicts,N,Mode) ->
-	Params = lists:nth(rand:uniform(length(ParamClauses)),ParamClauses),
-	{ok,Dic} = dict:find(Params,Dicts),	
-
-	Input = (catch generate_instance({Dic,Params})),
-	Res = validate_input(Mod1,Mod2,Fun,Input,Params,Dic,Mode),
-	case Res of
-		X when X == contained orelse X == existent_trace ->
-			gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,Dicts,N+1,Mode);
-		_ ->
-			gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,Dicts,0,Mode)
-	end.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%% RANDOM GENERATION %%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%
+% 1 MODULE GENERATION %
+%%%%%%%%%%%%%%%%%%%%%%%
+% gen_random_inputs(Mod,empty,Fun,ParamClauses,Dicts,N,_) ->
+% 	gen_random_inputs(Mod,Fun,ParamClauses,Dicts,N);
 
 gen_random_inputs(Mod,Fun,ParamClauses,Dicts,10000) ->
 	NewDicts = dict:map(
@@ -863,28 +922,6 @@ validate_input(Mod,Fun,Input,Params,Dic) ->
 					gen_guided_input(Mod,Fun,Input,Params,Dic)
 			end
 	end.
-validate_input(Mod1,Mod2,Fun,Input,Params,Dic,Mode) ->
-	ModTmp1 = list_to_atom(atom_to_list(Mod1)++"Tmp"),
-	ModTmp2 = list_to_atom(atom_to_list(Mod2)++"Tmp"),
-	RefC = make_ref(),
-	input_manager ! {contained,Input,RefC,self()},
-	receive
-		{RefC,true} ->
-			contained;
-		{RefC,false} ->
-			%catch apply(Mod1,Fun,Input),
-			%Cvg = get_coverage(Mod1),
-			{Trace1,Trace2} = execute_input(ModTmp1,ModTmp2,Fun,Input,Mode),
-			RefEx = make_ref(),
-			input_manager ! {existing_trace,Input,{Trace1,Trace2},RefEx,self()},
-			receive
-				{RefEx,true} ->
-					existent_trace;
-				{RefEx,false} ->
-					gen_guided_input(Mod1,Mod2,Fun,Input,Params,Dic,Mode)
-			end
-	end.
-
 gen_guided_input(Mod,Fun,Input,Params,Dic) ->
 	case length(Input) of
 		Size when Size < 2 ->
@@ -893,13 +930,140 @@ gen_guided_input(Mod,Fun,Input,Params,Dic) ->
 			NewInputs = gen_new_inputs(Input,Params,Dic),
 			[validate_input(Mod,Fun,NewInput,Params,Dic)|| NewInput <- NewInputs]
 	end. 
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% 2 MODULES GENERATION COMPARISON %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,Dicts,10000,Mode) ->
+% 	NewDicts = dict:map(
+% 		fun(_,V) ->
+% 			increment_integer_types(V)
+% 		end,
+% 		Dicts),
+% 	gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,NewDicts,0,Mode);
+% gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,Dicts,N,Mode) ->
+% 	Params = lists:nth(rand:uniform(length(ParamClauses)),ParamClauses),
+% 	{ok,Dic} = dict:find(Params,Dicts),	
+
+% 	Input = (catch generate_instance({Dic,Params})),
+% 	Res = validate_input(Mod1,Mod2,Fun,Input,Params,Dic,Mode),
+% 	case Res of
+% 		X when X == contained orelse X == existent_trace ->
+% 			gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,Dicts,N+1,Mode);
+% 		_ ->
+% 			gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,Dicts,0,Mode)
+% 	end.
+
+% validate_input(Mod1,Mod2,Fun,Input,Params,Dic,Mode) ->
+
+% 	RefC = make_ref(),
+% 	input_manager ! {contained,Input,RefC,self()},
+% 	receive
+% 		{RefC,true} ->
+% 			contained;
+% 		{RefC,false} ->
+% 			%catch apply(Mod1,Fun,Input),
+% 			%Cvg = get_coverage(Mod1),
+% 			{Trace1,Trace2} = execute_input(Mod1,Mod2,Fun,Input,Mode),
+% 			RefEx = make_ref(),
+% 			input_manager ! {existing_trace,Input,{Trace1,Trace2},RefEx,self()},
+% 			receive
+% 				{RefEx,true} ->
+% 					existent_trace;
+% 				{RefEx,false} ->
+% 					gen_guided_input(Mod1,Mod2,Fun,Input,Params,Dic,Mode)
+% 			end
+% 	end.
+
+% gen_guided_input(Mod1,Mod2,Fun,Input,Params,Dic,Mode) ->
+% 	case length(Input) of
+% 		Size when Size < 2 ->
+% 			next;
+% 		_Size ->
+% 			NewInputs = gen_new_inputs(Input,Params,Dic),
+% 			[validate_input(Mod1,Mod2,Fun,NewInput,Params,Dic,Mode)|| NewInput <- NewInputs]
+% 	end. 
+
+% gen_new_inputs(Input,Params,Dic) ->
+% 	{NewInputs,_} = lists:mapfoldl(
+% 		fun(E,Acc) ->
+% 			{NewParam,_} = generate_instance(E,{Dic,dict:new()}),
+% 			{replacenth(Acc,NewParam,Input),Acc+1}
+% 		end,
+% 		1,
+% 		Params),
+% 	NewInputs.
+	
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,Dicts,10000,Mode) ->
+	NewDicts = dict:map(
+		fun(_,V) ->
+			increment_integer_types(V)
+		end,
+		Dicts),
+	gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,NewDicts,0,Mode);
+gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,Dicts,N,Mode) ->
+	Params = lists:nth(rand:uniform(length(ParamClauses)),ParamClauses),
+	{ok,Dic} = dict:find(Params,Dicts),	
+
+	Input = (catch generate_instance({Dic,Params})),
+	Res = validate_input(Mod1,Mod2,Fun,{[Input],[]},Params,Dic,Mode),
+	case Res of
+		X when X == contained orelse X == existent_trace ->
+			gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,Dicts,N+1,Mode);
+		_ ->
+			gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,Dicts,0,Mode)
+	end.
+
+validate_input(Mod1,Mod2,Fun,Queue,Params,Dic,Mode) ->
+	{Input,{Prior,Last}} = case Queue of
+		{[],[]} ->
+			{finish,{[],[]}};
+		{[HP|TP],L} ->
+			{HP,{TP,L}};
+		{[],[HL|TL]} ->
+			{HL,{[],TL}}
+	end,
+
+	case Input of
+		finish ->
+			finish;
+		_ ->
+			RefC = make_ref(),
+			input_manager ! {contained,Input,RefC,self()},
+			receive
+				{RefC,true} ->
+					contained;
+				{RefC,false} ->
+					{Trace1,Trace2,Equals} = execute_input(Mod1,Mod2,Fun,Input,Mode),
+					RefEx = make_ref(),
+					input_manager ! {existing_trace,Input,{Trace1,Trace2},RefEx,self()},
+					receive
+						{RefEx,true} ->
+							existent_trace;
+						{RefEx,false} ->
+							MutatingInputs = gen_guided_input(Mod1,Mod2,Fun,Input,Params,Dic,Mode),
+
+							NewQueue = case Equals of
+								true ->
+									{Prior,Last ++ MutatingInputs};
+								_ ->
+									{Prior ++ MutatingInputs, Last}
+							end,
+							validate_input(Mod1,Mod2,Fun,NewQueue,Params,Dic,Mode)
+					end
+			end
+	end.
+
 gen_guided_input(Mod1,Mod2,Fun,Input,Params,Dic,Mode) ->
 	case length(Input) of
 		Size when Size < 2 ->
 			next;
 		_Size ->
-			NewInputs = gen_new_inputs(Input,Params,Dic),
-			[validate_input(Mod1,Mod2,Fun,NewInput,Params,Dic,Mode)|| NewInput <- NewInputs]
+			gen_new_inputs(Input,Params,Dic)
 	end. 
 
 gen_new_inputs(Input,Params,Dic) ->
@@ -911,7 +1075,8 @@ gen_new_inputs(Input,Params,Dic) ->
 		1,
 		Params),
 	NewInputs.
-	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 increment_integer_types(Dic) ->
 	dict:map(
 		fun (_,V) ->
