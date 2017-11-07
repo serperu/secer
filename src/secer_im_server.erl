@@ -5,6 +5,8 @@
 	{
 		empty_trace = dict:new(), 
 		valued_trace = dict:new(),
+		
+		timeouted_trace = dict:new(),
 
 		same_trace = dict:new(),
 		different_trace = dict:new(),
@@ -81,6 +83,16 @@ loop(State) ->
 								State#state.empty_trace),
 						cvg = Cvg
 					};
+				timeouted ->
+					State#state
+					{
+						timeouted_trace =
+							dict:store(
+								Input,
+								Trace,
+								State#state.timeouted_trace),
+						cvg = Cvg
+					};
 				_ ->
 					State#state
 					{
@@ -96,7 +108,7 @@ loop(State) ->
 		{add,Input,Trace1,Trace2,independent} ->
 			NewState = trace_division(Input,Trace1,Trace2,State),
 			loop(NewState);
-		{add,Input,Trace1,Trace2,_} -> 
+		{add,Input,Trace1,Trace2,_,Pid,Ref} -> 
 			CompareRes = case State#state.compare_fun of
 				undef ->
 			 		compare_default(Trace1,Trace2,State,fun equality/3);
@@ -104,6 +116,7 @@ loop(State) ->
 			 		compare_whole_trace(Trace1,Trace2,State#state.id_poi_dic,F)
 			 		%compare_user(Trace1,Trace2,State,F)
 			end,
+			Pid ! {Ref,CompareRes},
 			NewState = case CompareRes of
 				true ->
 					case Trace1 of
