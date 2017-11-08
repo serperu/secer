@@ -62,6 +62,8 @@ run(PoisRels,ExecFun,Timeout,CMode,CompareFun) ->
 						%io:format("All mismatching results were saved at: ./results/~s.txt\n",[FunName++"_"++Arity]),
 						{ErrorInput,Report} = (catch dict:map(fun(K,V) -> throw({K,V}) end, Different)),
 						{Poi1List,Poi2List,ErrorMsg,Poi1,Poi2} = Report,
+						% Aqui debemos tener cuidado porque puede llegar una lista en Poi1 
+						% o Poi2 con los POIs relacionados con el otro al ser un error diferent_length
 						case Poi1 of
 							"User Defined" ->
 								ok;
@@ -185,6 +187,8 @@ run(PoisRels,ExecFun,Timeout,CMode,CompareFun) ->
 		file:delete(filename:basename(FileNew,".erl")++".beam")
 	end.
 
+poi_translation(Poi) when is_list(Poi) ->
+	[poi_translation(P) || P <- Poi];
 poi_translation(Poi) ->
 	case Poi of
 		{F,L,application,O} ->
@@ -198,7 +202,6 @@ poi_translation(Poi) ->
 		_ ->
 			Poi
 	end.
-
 
 get_function_name(FunArity) ->
 	Tokens = string:tokens(FunArity,"/"),

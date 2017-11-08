@@ -111,7 +111,7 @@ loop(State) ->
 		{add,Input,Trace1,Trace2,_,Pid,Ref} -> 
 			CompareRes = case State#state.compare_fun of
 				undef ->
-			 		compare_default(Trace1,Trace2,State,fun equality/3);
+			 		compare_default(Trace1,Trace2,State);
 			 	F ->
 			 		compare_whole_trace(Trace1,Trace2,State#state.id_poi_dic,F)
 			 		%compare_user(Trace1,Trace2,State,F)
@@ -253,31 +253,84 @@ loop(State) ->
 				})
 	end.
 
-compare_default([],[],_,_) -> true;
-compare_default([],[{Id2,Value2}|Trace2],S,F) -> 
+compare_default([],[],_) -> true;
+compare_default([],[{Id2,Value2}|Trace2],S) -> 
 	{ok,POI2} = dict:find(Id2,S#state.id_poi_dic),
-	case F({null,[]},{POI2,Value2},S#state.relations) of
+	case equality({null,[]},{POI2,Value2},S#state.relations) of
 		true ->
-			compare_default([],Trace2,S,F);
+			compare_default([],Trace2,S);
 		Error ->
 			Error
 	end;
-compare_default([{Id1,Value1}|Trace1],[],S,F) -> 
+compare_default([{Id1,Value1}|Trace1],[],S) -> 
 	{ok,POI1} = dict:find(Id1,S#state.id_poi_dic),
-	case F({POI1,Value1},{null,[]},S#state.relations) of
+	case equality({POI1,Value1},{null,[]},S#state.relations) of
 		true ->
-			compare_default(Trace1,[],S,F);
+			compare_default(Trace1,[],S);
 		Error ->
 			Error
 	end;
-compare_default([{Id1,Value1}|Trace1],[{Id2,Value2}|Trace2],S,F) ->
+compare_default([{Id1,Value1}|Trace1],[{Id2,Value2}|Trace2],S) ->
 	{ok,POI1} = dict:find(Id1,S#state.id_poi_dic),
 	{ok,POI2} = dict:find(Id2,S#state.id_poi_dic),
-	case F({POI1,Value1},{POI2,Value2},S#state.relations) of
+	case equality({POI1,Value1},{POI2,Value2},S#state.relations) of
 		true ->
-			compare_default(Trace1,Trace2,S,F);
+			compare_default(Trace1,Trace2,S);
 		Error ->
 			Error
+	end.
+
+equality({null,_},{POI2,_},Rels) ->
+	POI1s = lists:foldl(
+		fun(E,RelPois) ->
+			case E of
+				{POI1,POI2} ->
+					[POI1|RelPois];
+				_ ->
+					RelPois
+			end
+		end,
+		[],
+		Rels),
+	POI = case POI1s of
+		[POISingle] ->
+			POISingle;
+		_ ->
+			POI1s
+	end,
+	{different_length_trace,POI,POI2};
+	%{different_length_trace,POI1s,POI2};
+equality({POI1,_},{null,_},Rels) ->
+	POI2s = lists:foldl(
+		fun(E,RelPois) ->
+			case E of
+				{POI1,POI2} ->
+					[POI1|RelPois];
+				_ ->
+					RelPois
+			end
+		end,
+		[],
+		Rels),
+	POI = case POI2s of
+		[POISingle] ->
+			POISingle;
+		_ ->
+			POI2s
+	end,
+	{different_length_trace,POI1,POI};
+	%{different_length_trace,POI1,POI2s};
+equality({POI1,Val1},{POI2,Val2},Rels) ->
+	case lists:member({POI1,POI2},Rels) of 
+		true ->
+			case Val1 == Val2 of
+				true ->
+					true;
+				false ->
+					{error_no_value,POI1,POI2}
+			end;
+		_ ->
+			{error_no_relation,POI1,POI2}
 	end.
 
 compare_whole_trace(T1,T2,Dic,F) ->
@@ -335,23 +388,6 @@ compare_user([{Id1,Value1}|Trace1],[{Id2,Value2}|Trace2],S,F) ->
 			{false,ErrorMsg,POI1,POI2}
 	end.
 
-equality({null,_},{POI2,_},_) ->
-	{different_length_trace,empty_trace,POI2};
-equality({POI1,_},{null,_},_) ->
-	{different_length_trace,POI1,empty_trace};
-equality({POI1,Val1},{POI2,Val2},Rels) ->
-	case lists:member({POI1,POI2},Rels) of 
-		true ->
-			case Val1 == Val2 of
-				true ->
-					true;
-				false ->
-					{error_no_value,POI1,POI2}
-			end;
-		_ ->
-			{error_no_relation,POI1,POI2}
-	end.
-
 trace_division(Input,T1,T2,S) ->
 	Rels = S#state.relations,
 	OldPois = lists:foldr(
@@ -365,24 +401,13 @@ trace_division(Input,T1,T2,S) ->
 					end,
 					[],
 					Rels),
-	% printer("Oldpois"),
-	% printer(OldPois),
-	% printer("Trace1"),
-	% printer(T1),
-	% printer("Trace2"),
-	% printer(T2),
-	% io:get_line(""),
+
 	TransformedTraces = [identify_trace(T1,T2,PoiOld,S,Rels,[],[]) || PoiOld <- OldPois],
-	% printer("I"),
-	% printer(Input),
-	% printer("T"),
-	% printer(TransformedTraces),
-	% io:get_line("STOP"),
 	lists:foldl(
 		fun({Trace1,Trace2},State) -> 
 			CompareRes = case State#state.compare_fun of
 			undef ->
-		 		compare_default(Trace1,Trace2,State,fun equality/3);
+		 		compare_default(Trace1,Trace2,State);
 		 	F ->
 		 		compare_user(Trace1,Trace2,State,F)
 			end,
