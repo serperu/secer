@@ -52,7 +52,7 @@ run(PoisRels,ExecFun,Timeout,CMode,CompareFun) ->
 									{ok,Value} ->
 										trace_organization(V,K,Dic,Value);
 									error ->
-										trace_organization(V,K,Dic,{{0,null,0},{0,null,0}})
+										trace_organization(V,K,Dic,{{0,null,-1},{0,null,-1}})
 								end
 							end,
 							dict:new(),
@@ -74,13 +74,13 @@ run(PoisRels,ExecFun,Timeout,CMode,CompareFun) ->
 						io:format("    POIs comparison:\n"),
 						ErrorList = 
 							[begin
-								case L1 of
-									0 ->
+								case {L1,L2} of
+									{0,_} ->
 										io:format("\t+ ~p => ~w Errors\n",[{poi_translation(POI1),poi_translation(POI2)},C1]),
 										InputString = lists:flatten(io_lib:format("~w", [EI1])),
 										FinalInput = string:substr(InputString,2,length(InputString)-2),
 										io:format("\t\t Example call: ~s(~s)\n",[FunName,FinalInput]);
-									1 ->
+									{1,2} ->
 										io:format("\t+ ~p\n",[{poi_translation(POI1),poi_translation(POI2)}]),
 										io:format("\t\t The first trace is longer => ~w Errors\n",[C1]),
 										InputString1 = lists:flatten(io_lib:format("~w", [EI1])),
@@ -89,15 +89,32 @@ run(PoisRels,ExecFun,Timeout,CMode,CompareFun) ->
 										io:format("\t\t The second trace is longer => ~w Errors\n",[C2]),
 										InputString2 = lists:flatten(io_lib:format("~w", [EI2])),
 										FinalInput2 = string:substr(InputString2,2,length(InputString2)-2),
-										io:format("\t\t Example call: ~s(~s)\n",[FunName,FinalInput2])
+										io:format("\t\t Example call: ~s(~s)\n",[FunName,FinalInput2]);
+									{-1,2} ->
+										io:format("\t+ ~p\n",[{poi_translation(POI1),poi_translation(POI2)}]),
+										io:format("\t\t The second trace is longer => ~w Errors\n",[C2]),
+										InputString2 = lists:flatten(io_lib:format("~w", [EI2])),
+										FinalInput2 = string:substr(InputString2,2,length(InputString2)-2),
+										io:format("\t\t Example call: ~s(~s)\n",[FunName,FinalInput2]);
+									{1,-1} ->
+										io:format("\t+ ~p\n",[{poi_translation(POI1),poi_translation(POI2)}]),
+										io:format("\t\t The first trace is longer => ~w Errors\n",[C1]),
+										InputString1 = lists:flatten(io_lib:format("~w", [EI1])),
+										FinalInput1 = string:substr(InputString1,2,length(InputString1)-2),
+										io:format("\t\t Example call: ~s(~s)\n",[FunName,FinalInput1])
 								end,
 								{EI1,EI2}
 							 end || {{POI1,POI2},{{C1,EI1,L1},{C2,EI2,L2}}} <- CountList],
 						%end,
 						lists:map(
 							fun({I1,I2}) ->
-								{ok,Val1} = dict:find(I1,Different),
-								print_detected_error(FunName,IdPoiDict,I1,Val1),
+								case I1 of
+									null ->
+										ok;
+									_ ->
+										{ok,Val1} = dict:find(I1,Different),
+										print_detected_error(FunName,IdPoiDict,I1,Val1)
+								end,
 								case I2 of
 									null ->
 										ok;
