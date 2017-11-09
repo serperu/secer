@@ -305,7 +305,7 @@ equality({POI1,_},{null,_},Rels) ->
 		fun(E,RelPois) ->
 			case E of
 				{POI1,POI2} ->
-					[POI1|RelPois];
+					[POI2|RelPois];
 				_ ->
 					RelPois
 			end

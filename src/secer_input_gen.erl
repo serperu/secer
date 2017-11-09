@@ -51,9 +51,7 @@ main(PoisRels,ExecFun,Time,CMode,CompareFun) ->
 				% PART 1
 				{ParamClauses,TypeDicts} = analyze_types(FileOld,FunName,Arity),
 				TimeOut = Time div 3,
-				%Inputs = execute_cuter(ModuleName1,ModuleName2,FunName,ParamClauses,TypeDicts,TimeOut),
-				Inputs = [[7,6]],
-
+				Inputs = execute_cuter(ModuleName1,ModuleName2,FunName,ParamClauses,TypeDicts,TimeOut),
 				
 				% PART 2
 				instrument_code(PoisRels,CompareFun),
