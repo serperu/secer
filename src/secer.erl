@@ -70,13 +70,16 @@ run(PoisRels,ExecFun,Timeout,CMode,CompareFun) ->
 						% 	"User Defined" ->
 						% 		ok;
 						% 	_ ->
+%printer(CountList),
 						io:format("    POIs comparison:\n"),
 						ErrorList = 
 							[ 
 								[begin
+%printer(NumError),
 									case NumError of
 										0 ->
-											io:format("\t+ ~p => ~w Errors\n",[{poi_translation(POI1),poi_translation(POI2)},C]),
+											io:format("\t+ ~p\n",[{poi_translation(POI1),poi_translation(POI2)}]),
+											io:format("\t\t Unexpected trace value => ~w Errors\n",[C]),
 											InputString = lists:flatten(io_lib:format("~w", [EI])),
 											FinalInput = string:substr(InputString,2,length(InputString)-2),
 											io:format("\t\t Example call: ~s(~s)\n",[FunName,FinalInput]);
@@ -89,6 +92,18 @@ run(PoisRels,ExecFun,Timeout,CMode,CompareFun) ->
 										2 ->
 											io:format("\t+ ~p\n",[{poi_translation(POI1),poi_translation(POI2)}]),
 											io:format("\t\t The second trace is longer => ~w Errors\n",[C]),
+											InputString = lists:flatten(io_lib:format("~w", [EI])),
+											FinalInput = string:substr(InputString,2,length(InputString)-2),
+											io:format("\t\t Example call: ~s(~s)\n",[FunName,FinalInput]);
+										3 ->
+											io:format("\t+ ~p\n",[{poi_translation(POI1),poi_translation(POI2)}]),
+											io:format("\t\t The second trace is empty => ~w Errors\n",[C]),
+											InputString = lists:flatten(io_lib:format("~w", [EI])),
+											FinalInput = string:substr(InputString,2,length(InputString)-2),
+											io:format("\t\t Example call: ~s(~s)\n",[FunName,FinalInput]);
+										4 ->
+											io:format("\t+ ~p\n",[{poi_translation(POI1),poi_translation(POI2)}]),
+											io:format("\t\t The first trace is empty => ~w Errors\n",[C]),
 											InputString = lists:flatten(io_lib:format("~w", [EI])),
 											FinalInput = string:substr(InputString,2,length(InputString)-2),
 											io:format("\t\t Example call: ~s(~s)\n",[FunName,FinalInput])
@@ -243,6 +258,20 @@ trace_organization(V,K,Dic,L) ->
 						_ ->
 							trace_type_organization(P1,P2,K,L,Dic,2)
 					end
+			end;
+		"The first trace is empty" ->
+			case L of
+				[] ->
+					dict:store({P1,P2},[{1,K,4}],Dic);
+				_ ->
+					trace_type_organization(P1,P2,K,L,Dic,4)
+			end;
+		"The second trace is empty" ->
+			case L of
+				[] ->
+					dict:store({P1,P2},[{1,K,3}],Dic);
+				_ ->
+					trace_type_organization(P1,P2,K,L,Dic,3)
 			end;
 		_ ->
 			case L of

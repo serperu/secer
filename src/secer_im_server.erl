@@ -220,6 +220,14 @@ loop(State) ->
 								State#state.different_trace)
 					};
 				{different_length_trace,P1,P2} ->
+					Msg = case {Trace1,Trace2} of
+						{[],_} ->
+							"The first trace is empty";
+						{_,[]} ->
+							"The second trace is empty";
+						_ ->
+							"The length of both traces differs"
+					end,
 					State#state
 					{
 						% valued_trace =
@@ -230,7 +238,7 @@ loop(State) ->
 						different_trace = 
 							dict:store(
 								Input,
-								{Trace1,Trace2,"The length of both traces differs",P1,P2},
+								{Trace1,Trace2,Msg,P1,P2},
 								State#state.different_trace)
 					};
 				_ ->
