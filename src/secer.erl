@@ -52,13 +52,12 @@ run(PoisRels,ExecFun,Timeout,CMode,CompareFun) ->
 									{ok,Value} ->
 										trace_organization(V,K,Dic,Value);
 									error ->
-										trace_organization(V,K,Dic,{{0,null,-1},{0,null,-1}})
+										trace_organization(V,K,Dic,[])
 								end
 							end,
 							dict:new(),
 							Different),
 						CountList = dict:to_list(CountDic),
-						%printer(CountList),
 						io:format("Mismatching test cases: ~p (~p%)\n",[X,Percentage]),
 						
 						%io:format("All mismatching results were saved at: ./results/~s.txt\n",[FunName++"_"++Arity]),
@@ -73,55 +72,38 @@ run(PoisRels,ExecFun,Timeout,CMode,CompareFun) ->
 						% 	_ ->
 						io:format("    POIs comparison:\n"),
 						ErrorList = 
-							[begin
-								case {L1,L2} of
-									{0,_} ->
-										io:format("\t+ ~p => ~w Errors\n",[{poi_translation(POI1),poi_translation(POI2)},C1]),
-										InputString = lists:flatten(io_lib:format("~w", [EI1])),
-										FinalInput = string:substr(InputString,2,length(InputString)-2),
-										io:format("\t\t Example call: ~s(~s)\n",[FunName,FinalInput]);
-									{1,2} ->
-										io:format("\t+ ~p\n",[{poi_translation(POI1),poi_translation(POI2)}]),
-										io:format("\t\t The first trace is longer => ~w Errors\n",[C1]),
-										InputString1 = lists:flatten(io_lib:format("~w", [EI1])),
-										FinalInput1 = string:substr(InputString1,2,length(InputString1)-2),
-										io:format("\t\t Example call: ~s(~s)\n",[FunName,FinalInput1]),
-										io:format("\t\t The second trace is longer => ~w Errors\n",[C2]),
-										InputString2 = lists:flatten(io_lib:format("~w", [EI2])),
-										FinalInput2 = string:substr(InputString2,2,length(InputString2)-2),
-										io:format("\t\t Example call: ~s(~s)\n",[FunName,FinalInput2]);
-									{-1,2} ->
-										io:format("\t+ ~p\n",[{poi_translation(POI1),poi_translation(POI2)}]),
-										io:format("\t\t The second trace is longer => ~w Errors\n",[C2]),
-										InputString2 = lists:flatten(io_lib:format("~w", [EI2])),
-										FinalInput2 = string:substr(InputString2,2,length(InputString2)-2),
-										io:format("\t\t Example call: ~s(~s)\n",[FunName,FinalInput2]);
-									{1,-1} ->
-										io:format("\t+ ~p\n",[{poi_translation(POI1),poi_translation(POI2)}]),
-										io:format("\t\t The first trace is longer => ~w Errors\n",[C1]),
-										InputString1 = lists:flatten(io_lib:format("~w", [EI1])),
-										FinalInput1 = string:substr(InputString1,2,length(InputString1)-2),
-										io:format("\t\t Example call: ~s(~s)\n",[FunName,FinalInput1])
-								end,
-								{EI1,EI2}
-							 end || {{POI1,POI2},{{C1,EI1,L1},{C2,EI2,L2}}} <- CountList],
-						%end,
+							[ 
+								[begin
+									case NumError of
+										0 ->
+											io:format("\t+ ~p => ~w Errors\n",[{poi_translation(POI1),poi_translation(POI2)},C]),
+											InputString = lists:flatten(io_lib:format("~w", [EI])),
+											FinalInput = string:substr(InputString,2,length(InputString)-2),
+											io:format("\t\t Example call: ~s(~s)\n",[FunName,FinalInput]);
+										1 ->
+											io:format("\t+ ~p\n",[{poi_translation(POI1),poi_translation(POI2)}]),
+											io:format("\t\t The first trace is longer => ~w Errors\n",[C]),
+											InputString = lists:flatten(io_lib:format("~w", [EI])),
+											FinalInput = string:substr(InputString,2,length(InputString)-2),
+											io:format("\t\t Example call: ~s(~s)\n",[FunName,FinalInput]);
+										2 ->
+											io:format("\t+ ~p\n",[{poi_translation(POI1),poi_translation(POI2)}]),
+											io:format("\t\t The second trace is longer => ~w Errors\n",[C]),
+											InputString = lists:flatten(io_lib:format("~w", [EI])),
+											FinalInput = string:substr(InputString,2,length(InputString)-2),
+											io:format("\t\t Example call: ~s(~s)\n",[FunName,FinalInput])
+									end,
+									EI
+								 end || {C,EI,NumError} <- Errors]
+							|| {{POI1,POI2},Errors} <- CountList],
 						lists:map(
-							fun({I1,I2}) ->
-								case I1 of
-									null ->
-										ok;
-									_ ->
-										{ok,Val1} = dict:find(I1,Different),
-										print_detected_error(FunName,IdPoiDict,I1,Val1)
-								end,
-								case I2 of
-									null ->
-										ok;
-									_ ->
-										{ok,Val2} = dict:find(I2,Different),
-										print_detected_error(FunName,IdPoiDict,I2,Val2)
-								end
+							fun(EL) ->
+								lists:map(
+									fun(I) -> 
+										{ok,Val} = dict:find(I,Different),
+										print_detected_error(FunName,IdPoiDict,I,Val)
+									end,
+									EL)
 							end,
 							ErrorList)
 				end;
@@ -242,42 +224,88 @@ print_detected_error(FunName,IdPoiDict,ErrorInput,Val) ->
 	end,
 	io:format("~s\n",["----------------------------"]).
 
-trace_organization(V,K,Dic,{{C1,I1,L1},{C2,I2,L2}}) ->
+trace_organization(V,K,Dic,L) ->
 	{T1,T2,Msg,P1,P2} = V,
-	
-	%printer(ExInput),
 	case Msg of
 		"The length of both traces differs" ->
 			case length(T1) > length(T2) of
 				true ->
-					ExInput = 
-						case I1 of
-							null ->
-								K;
-							_ ->
-								I1
-						end,
-					dict:store({P1,P2},{{C1+1,ExInput,1},{C2,I2,L2}},Dic);
+					case L of
+						[] ->
+							dict:store({P1,P2},[{1,K,1}],Dic);
+						_ ->
+							trace_type_organization(P1,P2,K,L,Dic,1)
+					end;
 				false ->
-					ExInput = 
-						case I2 of
-							null ->
-								K;
-							_ ->
-								I2
-						end,
-					dict:store({P1,P2},{{C1,I1,L1},{C2+1,ExInput,2}},Dic)
+					case L of
+						[] ->
+							dict:store({P1,P2},[{1,K,2}],Dic);
+						_ ->
+							trace_type_organization(P1,P2,K,L,Dic,2)
+					end
 			end;
 		_ ->
-			ExInput = 
-				case I1 of
-					null ->
-						K;
-					_ ->
-						I1
-				end,
-			dict:store({P1,P2},{{C1+1,ExInput,0},{C2,I2,L2}},Dic)
+			case L of
+				[] ->
+					dict:store({P1,P2},[{1,K,0}],Dic);
+				_ ->
+					trace_type_organization(P1,P2,K,L,Dic,0)
+			end
 	end.
+
+trace_type_organization(P1,P2,K,L,Dic,ErrorId) ->
+	Exists = lists:any(fun(E) -> ErrorId == element(3,E) end,L),
+	NewL = case Exists of
+		true ->
+			lists:map(
+				fun(E) ->
+					case E of
+						{Cont,I,ErrorId} ->
+							{Cont+1,I,ErrorId};
+						_ ->
+							E
+					end
+				end,
+				L);
+		false ->
+			[{1,K,ErrorId}|L]
+	end,
+	dict:store({P1,P2},NewL,Dic).
+% trace_organization(V,K,Dic,{{C1,I1,L1},{C2,I2,L2}}) ->
+% 	{T1,T2,Msg,P1,P2} = V,
+	
+% 	case Msg of
+% 		"The length of both traces differs" ->
+% 			case length(T1) > length(T2) of
+% 				true ->
+% 					ExInput = 
+% 						case I1 of
+% 							null ->
+% 								K;
+% 							_ ->
+% 								I1
+% 						end,
+% 					dict:store({P1,P2},{{C1+1,ExInput,1},{C2,I2,L2}},Dic);
+% 				false ->
+% 					ExInput = 
+% 						case I2 of
+% 							null ->
+% 								K;
+% 							_ ->
+% 								I2
+% 						end,
+% 					dict:store({P1,P2},{{C1,I1,L1},{C2+1,ExInput,2}},Dic)
+% 			end;
+% 		_ ->
+% 			ExInput = 
+% 				case I1 of
+% 					null ->
+% 						K;
+% 					_ ->
+% 						I1
+% 				end,
+% 			dict:store({P1,P2},{{C1+1,ExInput,0},{C2,I2,L2}},Dic)
+% 	end.
 
 poi_translation(Poi) when is_list(Poi) ->
 	[poi_translation(P) || P <- Poi];
