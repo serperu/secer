@@ -7,9 +7,18 @@
 
 run(PoisRels,ExecFun,Timeout,CMode,CompareFun) -> 
 	try 
-		register(secer,self()),
-		register(input_gen,spawn(secer_input_gen,main,[PoisRels,ExecFun,Timeout,CMode,CompareFun])),
+		case whereis(secer) of
+		    undefined ->
+		        register(secer, self());
+		    _ ->
+		        already_started
+		end,
+
 		register(input_manager,spawn(secer_im_server,init,[])),
+		register(input_gen,spawn(secer_input_gen,main,[PoisRels,ExecFun,Timeout,CMode,CompareFun])),
+%		AUX2 = (catch register(input_gen,spawn(secer_input_gen,main,[PoisRels,ExecFun,Timeout,CMode,CompareFun]))),
+%		printer("AUX2"),
+%		printer(AUX2),
 
 		{FunName,Arity} = get_function_name(ExecFun),
 
@@ -17,16 +26,15 @@ run(PoisRels,ExecFun,Timeout,CMode,CompareFun) ->
 			die -> 
 				exit(0);
 			continue ->
+				%printer("CONTINUA"),
 				ok
 		after Timeout * 1000 ->
 				ok
 		end,
-
 		input_manager ! {get_results,self()},
 
 		receive
-			{Empty,Valued,Same,Different,_Cvg,IdPoiDict} -> 
-
+			{Empty,Valued,Same,Different,_Cvg,IdPoiDict,Timeouted} -> 
 				case dict:size(Different) of
 					0 ->
 						io:format("\n"),
@@ -121,10 +129,41 @@ run(PoisRels,ExecFun,Timeout,CMode,CompareFun) ->
 									EL)
 							end,
 							ErrorList)
-				end;
+				end,%;
 
 				% {ok,Fd} = file:open("./tmp/Results.txt",[write]),
 				% io:format(Fd,"~w.\n~w.",[Same,Different]);
+
+
+%%%%%%%%% ESCRIBIR Inputs.txt en ./tmp al ejecutar %%%%%%%%%
+{ok,FdI} = file:open("./tmp/Inputs.txt",[write]),
+
+io:format(FdI,"*** NORMAL EXECUTIONS ***\n",[]), 
+dict:map(
+	fun(K,_) -> 
+		InputString0 = lists:flatten(io_lib:format("~w", [K])),
+		FinalInput0 = string:substr(InputString0,2,length(InputString0)-2),
+		io:format(FdI,"~s(~s)\n",[FunName,FinalInput0]) 
+	end,
+	Same),
+io:format(FdI,"*** ERROR EXECUTIONS ***\n",[]),
+dict:map(
+	fun(K,V) -> 
+		InputString0 = lists:flatten(io_lib:format("~w", [K])),
+		FinalInput0 = string:substr(InputString0,2,length(InputString0)-2),
+		io:format(FdI,"~s(~s)\n",[FunName,FinalInput0]) 
+	end,
+	Different),
+io:format(FdI,"*** TIMEOUTED EXECUTIONS ***\n",[]), 
+dict:map(
+	fun(K,_) -> 
+		InputString0 = lists:flatten(io_lib:format("~w", [K])),
+		FinalInput0 = string:substr(InputString0,2,length(InputString0)-2),
+		io:format(FdI,"~s(~s)\n",[FunName,FinalInput0]) 
+	end,
+	Timeouted);
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 				% ReadeableFileName = "./results/"++FunName++"_"++Arity++".txt",
 				% {ok,Fd2} = file:open(ReadeableFileName,[write]),
@@ -159,7 +198,9 @@ run(PoisRels,ExecFun,Timeout,CMode,CompareFun) ->
 				error
 		end
 	catch 
-		_:_ -> errorCatch
+		E:R -> 
+			printer(erroraco),
+			errorCatch
 	after
 		case {whereis(input_gen),whereis(input_manager)} of
 			{undefined,undefined} ->
@@ -176,6 +217,7 @@ run(PoisRels,ExecFun,Timeout,CMode,CompareFun) ->
 				timer:exit_after(0,Pid1,kill),
 				timer:exit_after(0,Pid2,kill)
 		end,
+
 		[{Old,New}|_] = PoisRels,
 		
 		FileOld = atom_to_list(element(1,Old)),

@@ -105,6 +105,26 @@ loop(State) ->
 					}
 			end,
 			loop(NewState);
+		{add,Input,timeouted,Trace2,_} ->
+			NewState = State#state
+				{
+					timeouted_trace =
+						dict:store(
+							Input,
+							{timeouted,Trace2},
+							State#state.timeouted_trace)
+				},
+			loop(NewState);
+		{add,Input,Trace1,timeouted,_} ->
+			NewState = State#state
+				{
+					timeouted_trace =
+						dict:store(
+							Input,
+							{Trace1,timeouted},
+							State#state.timeouted_trace)
+				},
+			loop(NewState);
 		{add,Input,Trace1,Trace2,independent} ->
 			NewState = trace_division(Input,Trace1,Trace2,State),
 			loop(NewState);
@@ -116,6 +136,11 @@ loop(State) ->
 			 		compare_whole_trace(Trace1,Trace2,State#state.id_poi_dic,F)
 			 		%compare_user(Trace1,Trace2,State,F)
 			end,
+			% printer("Trace1"),
+			% printer(Trace1),
+			% printer("Trace2"),
+			% printer(Trace2),
+			% io:get_line(""),
 			Pid ! {Ref,CompareRes},
 			NewState = case CompareRes of
 				true ->
@@ -250,7 +275,7 @@ loop(State) ->
 			{Empty,Valued,Same,Different,Cvg} = 
 				{State#state.empty_trace, State#state.valued_trace,
 					State#state.same_trace,State#state.different_trace,State#state.cvg},
-			Pid ! {Empty,Valued,Same,Different,Cvg,State#state.id_poi_dic};
+			Pid ! {Empty,Valued,Same,Different,Cvg,State#state.id_poi_dic,State#state.timeouted_trace};
 
 		Other ->
 			erlang:exit(

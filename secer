@@ -47,7 +47,7 @@ main(["-pois", Pois, "-funs", FunList, "-to", Time, "-cfun", CFun]) ->
 		{-1, -1} -> 
 			usage(1);
 		_ -> 
-			[secer:run(PoisRels,IFun,Timeout,sequential,CompareFun)|| IFun<- InputFuns]
+			[secer:run(PoisRels,string:strip(IFun,both),Timeout,sequential,CompareFun)|| IFun<- InputFuns]
 			%[secer:run(PoisRels,IFun,Timeout,independent,CompareFun)|| IFun<- InputFuns]
 			%[secer:run(PoisRels,IFun,Timeout,empty)|| IFun<- InputFuns]
 	end;
@@ -90,7 +90,11 @@ main(["-pois", Pois, "-funs", FunList, "-to", Time]) ->
 		{-1, -1} -> 
 			usage(1);
 		_ -> 
-			[secer:run(PoisRels,IFun,Timeout,sequential,empty)|| IFun<- InputFuns]
+			%io:format("~p\n",[InputFuns]),
+			[begin
+				secer:run(PoisRels,string:strip(IFun,both),Timeout,sequential,empty)
+			 end
+			|| IFun<- InputFuns]
 			%[secer:run(PoisRels,IFun,Timeout,independent,empty)|| IFun<- InputFuns]
 			%[secer:run(PoisRels,IFun,Timeout,empty)|| IFun<- InputFuns]
 	end;
@@ -137,9 +141,9 @@ main(["-pois", Pois, "-funs", FunList, "-to", Time, Flag]) ->
 			%[secer:run(PoisRels,IFun,Timeout,empty)|| IFun<- InputFuns]
 			case Flag of
 				"-independent" ->
-					[secer:run(PoisRels,IFun,Timeout,independent,empty)|| IFun<- InputFuns];
+					[secer:run(PoisRels,string:strip(IFun,both),Timeout,independent,empty)|| IFun<- InputFuns];
 				_ ->
-					[secer:run(PoisRels,IFun,Timeout,sequential,empty)|| IFun<- InputFuns]		
+					[secer:run(PoisRels,string:strip(IFun,both),Timeout,sequential,empty)|| IFun<- InputFuns]		
 			end
 	end;
 

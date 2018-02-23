@@ -4,7 +4,6 @@
 
 -record(nodeinfo, {id,env,bound,free}).
 
-
 main(POIList,CompareFun) ->
 
 		%START
@@ -348,7 +347,7 @@ child(L,{Line,null,ExprType,Oc,CurrentOc}) ->
 					throw(erl_syntax:get_ann(E));
 				{T,Li} ->
 					{_,_,_,_,NewCurrentOc} = children_list(erl_syntax:subtrees(E),Li,Poi,T,O,CurOc+1),
-					{Li,Poi,T,O,NewCurrentOc+1};
+					{Li,Poi,T,O,NewCurrentOc};
 				_ ->
 					{_,_,_,_,NewCurrentOc} = children_list(erl_syntax:subtrees(E),Li,Poi,T,O,CurOc),
 					{Li,Poi,T,O,NewCurrentOc}
@@ -364,8 +363,8 @@ child(L,{Line,Poi_Name,ExprType,Oc,CurrentOc}) ->
 				{T,Li,Poi} when O == CurOc -> 
 					throw(erl_syntax:get_ann(E));
 				{T,Li,Poi} ->
-					{_,_,_,_,NewCurrentOc} = children_list(erl_syntax:subtrees(E),Li,Poi,T,O,CurOc),
-					{Li,Poi,T,O,NewCurrentOc+1};
+					{_,_,_,_,NewCurrentOc} = children_list(erl_syntax:subtrees(E),Li,Poi,T,O,CurOc+1),
+					{Li,Poi,T,O,NewCurrentOc};
 				_ ->
 					{_,_,_,_,NewCurrentOc} =children_list(erl_syntax:subtrees(E),Li,Poi,T,O,CurOc),
 					{Li,Poi,T,O,NewCurrentOc}
@@ -430,7 +429,7 @@ instrument_AST(AST,PoiId) ->
 map_instrument_AST(Node,{PoiId,Found}) ->
 	case Found of
 		true ->
-			{Node,{PoiId,Found}};
+		 	{Node,{PoiId,Found}};
 		_ ->
 			case erl_syntax:type(Node) of
 				function ->
@@ -439,38 +438,49 @@ map_instrument_AST(Node,{PoiId,Found}) ->
 						unfound -> 
 							{Node,{PoiId,Found}};
 						_ -> 
-							%Ann_node = erl_syntax_lib:annotate_bindings(Node,ordsets:new()),
 							% POSIBLEMENTE ESTO SE PUEDE SACAR FUERA (Se ejecuta en cada POI)
 							Var_list = sets:to_list(erl_syntax_lib:variables(Node)),
 							add_vars_to_var_gen(Var_list),
-							{instrument(Node,SC_path),{PoiId,true}}
+							{instrument_all_paths(Node,SC_path),{PoiId,true}}
 					end;
 				_ -> 
 					{Node,{PoiId,Found}}
 			end
 	end.
 
+instrument_all_paths(Node,PathList) ->
+	lists:foldl(
+		fun(P,N) ->
+			instrument(N,P)
+		end,
+		Node,
+		PathList).
+
 %%%%%%%%%%%%%%%%
 %%% GET PATH %%%
 %%%%%%%%%%%%%%%%
 get_path(Root,PoiId) ->
-	try 
-		list_of_lists(erl_syntax:subtrees(Root),PoiId,[]),
-		unfound
-	catch
-		Path -> Path
+	PathList = list_of_lists(erl_syntax:subtrees(Root),PoiId,[],[]),
+	case PathList of
+		[] ->
+			unfound;
+		_ ->
+			PathList
 	end.
-list_of_lists(L,PoiId,Path) ->
-	lists:foldl(
-		fun(E, {PId,NAcc}) ->
-			list(E,{PId,NAcc},1,Path),
-			{PId,NAcc + 1}
+
+list_of_lists(L,PoiId,Path,PathList) ->
+	{_,_,NewPathList} = lists:foldl(
+		fun(E, {PId,NAcc,PL}) ->
+			{_,_,NPL} = list(E,{PId,NAcc},1,Path,PL),
+			{PId,NAcc + 1,NPL}
 		end,
-		{PoiId,1},
-		L).
-list(L,{PoiId,N},_,Path) ->
+		{PoiId,1,PathList},
+		L),
+	NewPathList.
+
+list(L,{PoiId,N},_,Path,PathList) ->
 	lists:foldl(
-		fun(E, {PId,MAcc}) ->
+		fun(E, {PId,MAcc,PL}) ->
 			New_path = [{erl_syntax:type(E),N,MAcc}|Path],
 			Ann = erl_syntax:get_ann(E),
 			case Ann of
@@ -478,18 +488,60 @@ list(L,{PoiId,N},_,Path) ->
 					NodeId = Info#nodeinfo.id,
 					case NodeId of
 						PId ->
-							throw(New_path);
+							NewPathList = [New_path|PL],
+							{PId,MAcc+1,NewPathList};
 						_ ->
-							list_of_lists(erl_syntax:subtrees(E),PId,New_path),
-							{PId,MAcc+1}
+							NewPathLists = list_of_lists(erl_syntax:subtrees(E),PId,New_path,PL),
+							{PId,MAcc+1,NewPathLists}
 					end;
 				[] ->
-					list_of_lists(erl_syntax:subtrees(E),PId,New_path),
-					{PId,MAcc+1}
+					NewPathLists = list_of_lists(erl_syntax:subtrees(E),PId,New_path,PL),
+					{PId,MAcc+1,NewPathLists}
 			end
 		end,
-		{PoiId,1},
+		{PoiId,1,PathList},
 		L).
+
+%%%%%%%%%%%%%%%%%%%%%%%
+%%% GET PATH BACKUP %%%
+%%%%%%%%%%%%%%%%%%%%%%%
+% get_path(Root,PoiId) ->
+% 	try 
+% 		list_of_lists(erl_syntax:subtrees(Root),PoiId,[]),
+% 		unfound
+% 	catch
+% 		Path -> Path
+% 	end.
+% list_of_lists(L,PoiId,Path) ->
+% 	lists:foldl(
+% 		fun(E, {PId,NAcc}) ->
+% 			list(E,{PId,NAcc},1,Path),
+% 			{PId,NAcc + 1}
+% 		end,
+% 		{PoiId,1},
+% 		L).
+% list(L,{PoiId,N},_,Path) ->
+% 	lists:foldl(
+% 		fun(E, {PId,MAcc}) ->
+% 			New_path = [{erl_syntax:type(E),N,MAcc}|Path],
+% 			Ann = erl_syntax:get_ann(E),
+% 			case Ann of
+% 				[Info] ->
+% 					NodeId = Info#nodeinfo.id,
+% 					case NodeId of
+% 						PId ->
+% 							throw(New_path);
+% 						_ ->
+% 							list_of_lists(erl_syntax:subtrees(E),PId,New_path),
+% 							{PId,MAcc+1}
+% 					end;
+% 				[] ->
+% 					list_of_lists(erl_syntax:subtrees(E),PId,New_path),
+% 					{PId,MAcc+1}
+% 			end
+% 		end,
+% 		{PoiId,1},
+% 		L).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% ADD VARS TO VAR GEN %%%
