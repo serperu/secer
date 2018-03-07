@@ -35,6 +35,17 @@ run(PoisRels,ExecFun,Timeout,CMode,CompareFun) ->
 
 		receive
 			{Empty,Valued,Same,Different,_Cvg,IdPoiDict,Timeouted} -> 
+				% ND = dict:fold(
+				% 	fun(K,V,Acc) ->
+				% 		dict:store(V,0,Acc)
+				% 	end,
+				% 	dict:new(),
+				% 	Different),
+				% io:format("TOTAL\n"),
+				% io:format("~p\n",[dict:size(Different)]),
+				% io:format("Differents\n"),
+				% io:format("~p\n",[dict:size(ND)]),
+				% io:get_line("STOP"),
 				case dict:size(Different) of
 					0 ->
 						io:format("\n"),
@@ -448,6 +459,17 @@ run_silent(PoisRels,ExecFun,Timeout,CMode,CompareFun,GenMode) ->
 
 		receive
 			{Empty,Valued,Same,Different,_Cvg,IdPoiDict,Timeouted} -> 
+				% ND = dict:fold(
+				% 	fun(K,V,Acc) ->
+				% 		dict:store(V,0,Acc)
+				% 	end,
+				% 	dict:new(),
+				% 	Different),
+				% io:format("TOTAL\n"),
+				% io:format("~p\n",[dict:size(Different)]),
+				% io:format("Differents\n"),
+				% io:format("~p\n",[dict:size(ND)]),
+				% io:get_line("STOP"),
 				{dict:size(Same),dict:size(Different)};
 			_ ->
 				printer(error),
