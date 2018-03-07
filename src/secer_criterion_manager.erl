@@ -338,6 +338,28 @@ children_list(L,Line,Poi_Name,Type,Oc,CurrentOc) ->
 		{Line,Poi_Name,Type,Oc,CurrentOc},
 		L).
 
+child(L,{Line,null,list,Oc,CurrentOc}) ->
+	lists:foldl(
+		fun(E,{Li,Poi,T,O,CurOc}) ->
+			{_,Type,{_,IfLine,_,_},_} = E,
+			case {Type,IfLine} of
+				{list,Li} when O == CurOc -> 
+					throw(erl_syntax:get_ann(E));
+				{nil,Li} when O == CurOc -> 
+					throw(erl_syntax:get_ann(E));	
+				{list,Li} ->
+					{_,_,_,_,NewCurrentOc} = children_list(erl_syntax:subtrees(E),Li,Poi,T,O,CurOc+1),
+					{Li,Poi,T,O,NewCurrentOc};
+				{nil,Li} ->
+					{_,_,_,_,NewCurrentOc} = children_list(erl_syntax:subtrees(E),Li,Poi,T,O,CurOc+1),
+					{Li,Poi,T,O,NewCurrentOc};
+				_ ->
+					{_,_,_,_,NewCurrentOc} = children_list(erl_syntax:subtrees(E),Li,Poi,T,O,CurOc),
+					{Li,Poi,T,O,NewCurrentOc}
+			end
+		end,
+		{Line,null,list,Oc,CurrentOc},
+		L);
 child(L,{Line,null,ExprType,Oc,CurrentOc}) ->
 	lists:foldl(
 		fun(E,{Li,Poi,T,O,CurOc}) ->

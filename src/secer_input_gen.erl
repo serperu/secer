@@ -1,5 +1,5 @@
 -module(secer_input_gen).
--export([main/5,get_exports/1]). %main/6,
+-export([main/5,main_random/5,get_exports/1]). %main/6,
 
 -define(TMP_PATH,"./tmp/").
 -define(INPUT_LIMIT,10000).
@@ -121,6 +121,96 @@ main(PoisRels,ExecFun,Time,CMode,CompareFun) ->
 				unregister(tracer)
 		end
 	end.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%% FULL RANDOM %%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+main_random(PoisRels,ExecFun,Time,CMode,CompareFun) ->
+	try 
+		register(cuterIn,spawn(secer_trace,init,[])),
+		register(tracer,spawn(secer_trace,init,[])),
+		[{Old,New}|_] = PoisRels,
+
+		FileOld = atom_to_list(element(1,Old)),
+		FileNew = atom_to_list(element(1,New)),
+
+		ResComp1 = compile:file(FileOld,[debug_info]),
+		ResComp2 = compile:file(FileNew,[debug_info]),
+
+		ModuleName1 = list_to_atom(filename:basename(FileOld,".erl")),
+		ModuleName2 = list_to_atom(filename:basename(FileNew,".erl")),
+
+		case {ResComp1,ResComp2} of
+			{error,error} ->
+				io:format("Module ~p couldn't be compiled due to syntax errors\nModule ~p couldn't be compiled due to syntax errors\n",[ModuleName1,ModuleName2]),
+				secer ! die,
+				exit(0);
+			{error,_} ->
+				io:format("Module ~p couldn't be compiled due to syntax errors\n",[ModuleName1]),
+				secer ! die,
+				exit(0);
+			{_,error} ->
+				io:format("Module ~p couldn't be compiled due to syntax errors\n",[ModuleName2]),
+				secer ! die,
+				exit(0);
+			_ -> ok
+		end,
+
+		{FunName,Arity} = divide_function(ExecFun),
+		case Arity of
+			0 ->
+				instrument_code(PoisRels,CompareFun),
+
+				ModTmp1 = list_to_atom(filename:basename(FileOld,".erl")++"Tmp"),
+				ModTmp2 = list_to_atom(filename:basename(FileNew,".erl")++"Tmp"),
+
+				execute_input(ModTmp1,ModTmp2,FunName,[],CMode,Time);
+			_ ->
+				% PART 1
+				{ParamClauses,TypeDicts} = analyze_types(FileOld,FunName,Arity),
+				TimeOut = Time div 3,
+				Inputs = execute_cuter(ModuleName1,ModuleName2,FunName,ParamClauses,TypeDicts,TimeOut),
+
+				% PART 2
+				instrument_code(PoisRels,CompareFun),
+
+				{ok, Fd} = file:open(?TMP_PATH++"cuter.txt", [write]),
+				Self = self(),
+				Ref = make_ref(),
+
+				spawn(fun() ->
+						group_leader(Fd,self()),
+						Self ! {cover_compilation(FileOld),Ref}
+						end),
+				receive
+					{_,Ref} ->
+						file:close(Fd)
+				end,
+
+				ModTmp1 = list_to_atom(filename:basename(FileOld,".erl")++"Tmp"),
+				ModTmp2 = list_to_atom(filename:basename(FileNew,".erl")++"Tmp"),
+				[execute_input(ModTmp1,ModTmp2,FunName,I,CMode,TimeOut) || I <- Inputs],
+				gen_random_proper_inputs(ModTmp1,ModTmp2,FunName,ParamClauses,TypeDicts,0,CMode,TimeOut)
+				
+					
+				% {Clause,Dic} = identify_clause_input(ParamClauses,TypeDicts,Input),
+				% validate_input(ModTmp1,ModTmp2,FunName,Queue,Clause,Dic,CMode,TimeOut),
+				% gen_random_inputs(ModTmp1,ModTmp2,FunName,ParamClauses,TypeDicts,0,CMode,TimeOut)
+		end
+	catch 
+		E:R ->
+			%printer({E,R}),
+			{E,R}
+	after
+		case whereis(cuterIn) of
+			undefined -> 
+				ok;
+			_ -> 
+				unregister(cuterIn),
+				unregister(tracer)
+		end
+	end.
+
 % main(ProgramName,Line,Var,Oc,Function,Time) ->
 % 	try 
 % 		register(cuterIn,spawn(secer_trace,init,[])),
@@ -942,7 +1032,7 @@ executed_lines([Line|Remaining],Executed) ->
 % gen_random_inputs(Mod,Fun,ParamClauses,Dicts,10000) ->
 % 	NewDicts = dict:map(
 % 		fun(_,V) ->
-% 			increment_integer_types(V)
+% 			increase_integer_types(V)
 % 		end,
 % 		Dicts),
 % 	gen_random_inputs(Mod,Fun,ParamClauses,NewDicts,0);
@@ -995,7 +1085,7 @@ executed_lines([Line|Remaining],Executed) ->
 % gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,Dicts,10000,Mode) ->
 % 	NewDicts = dict:map(
 % 		fun(_,V) ->
-% 			increment_integer_types(V)
+% 			increase_integer_types(V)
 % 		end,
 % 		Dicts),
 % 	gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,NewDicts,0,Mode);
@@ -1051,14 +1141,30 @@ executed_lines([Line|Remaining],Executed) ->
 % 		1,
 % 		Params),
 % 	NewInputs.
-	
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%   GEN FULL RANDOM PROPER   %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+gen_random_proper_inputs(Mod1,Mod2,Fun,ParamClauses,Dicts,10000,Mode,TO) ->
+	NewDicts = dict:map(
+		fun(_,V) ->
+			increase_integer_types(V)
+		end,
+		Dicts),
+	gen_random_proper_inputs(Mod1,Mod2,Fun,ParamClauses,NewDicts,0,Mode,TO);
+gen_random_proper_inputs(Mod1,Mod2,Fun,ParamClauses,Dicts,N,Mode,TO) -> %VALIDAR NO REPETIDO?
+	Params = lists:nth(rand:uniform(length(ParamClauses)),ParamClauses),
+	{ok,Dic} = dict:find(Params,Dicts),	
+	Input = (catch generate_instance({Dic,Params})),
+	execute_input(Mod1,Mod2,Fun,Input,Mode,TO),
+	gen_random_proper_inputs(Mod1,Mod2,Fun,ParamClauses,Dicts,0,Mode,TO).
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,Dicts,10000,Mode,TO) ->
 	NewDicts = dict:map(
 		fun(_,V) ->
-			increment_integer_types(V)
+			increase_integer_types(V)
 		end,
 		Dicts),
 	gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,NewDicts,0,Mode,TO);
@@ -1067,6 +1173,7 @@ gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,Dicts,N,Mode,TO) ->
 	{ok,Dic} = dict:find(Params,Dicts),	
 	Input = (catch generate_instance({Dic,Params})),
 	Res = validate_input(Mod1,Mod2,Fun,{[Input],[]},Params,Dic,Mode,TO),
+
 	case Res of
 		X when X == contained orelse X == existent_trace ->
 			gen_random_inputs(Mod1,Mod2,Fun,ParamClauses,Dicts,N+1,Mode,TO);
@@ -1131,7 +1238,7 @@ gen_new_inputs(Input,Params,Dic) ->
 	NewInputs.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-increment_integer_types(Dic) ->
+increase_integer_types(Dic) ->
 	dict:map(
 		fun (_,V) ->
 				case V of
@@ -1157,11 +1264,44 @@ increment_integer_types(Dic) ->
 							_ ->
 								{number,{int_rng,10*Min,10*Max},integer}
 						end;
+					{tuple,L,Tail} ->
+						NewL = [increase_internal_integer_types(Elem) || Elem <- L],
+						{tuple,NewL,Tail};
 					Value ->
 						Value
 				end
 		end, 
 		Dic).
+increase_internal_integer_types(TypeList) ->
+	case TypeList of
+		{number,any,integer} ->
+			{number,{int_rng,-50,50},integer};
+		{number,{int_rng,neg_inf,pos_inf},integer} ->
+			{number,{int_rng,neg_inf,pos_inf},integer};
+		{number,{int_rng,Min,pos_inf},integer} ->
+			case Min < 0 of
+				true ->
+					{number,{int_rng,2*Min,pos_inf},integer};
+				false ->
+					{number,{int_rng,Min,pos_inf},integer}
+			end;
+		{number,{int_rng,neg_inf,Max},integer} ->
+			{number,{int_rng,neg_inf,Max*2},integer};
+		{number,{int_rng,Min,Max},integer} ->
+			case {Min =< 0, Max >= 0} of
+				{false,true} ->
+					{number,{int_rng,Max,10*(Max-Min)},integer};
+				{true,false} ->
+					{number,{int_rng,-10*(Min-Max),Max},integer};
+				_ ->
+					{number,{int_rng,10*Min,10*Max},integer}
+			end;
+		{tuple,L,Tail} ->
+			NewL = [increase_internal_integer_types(Elem) || Elem <- L],
+			{tuple,NewL,Tail};
+		Value ->
+			Value
+	end.
 
 identify_clause_input([Clause],Dicts,_) ->
 	{ok,Dict} = dict:find(Clause,Dicts),

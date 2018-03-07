@@ -1,5 +1,5 @@
 -module(secer).
--export([run/5]).
+-export([run/5,run/6,run/7]).
 % PoisRels::[{POIOld,POINew}] 
 % CompareFun::fun cf/2
 % Fun::"funName/Arity" (String)
@@ -199,7 +199,7 @@ dict:map(
 		end
 	catch 
 		E:R -> 
-			printer(erroraco),
+			%printer(erroraco),
 			errorCatch
 	after
 		case {whereis(input_gen),whereis(input_manager)} of
@@ -235,7 +235,8 @@ dict:map(
 		file:delete("./tmp/"++FileNew),
 
 		file:delete(filename:basename(FileOld,".erl")++".beam"),
-		file:delete(filename:basename(FileNew,".erl")++".beam")
+		file:delete(filename:basename(FileNew,".erl")++".beam"),
+		clean_tmp()
 	end.
 
 print_detected_error(FunName,IdPoiDict,ErrorInput,Val) ->
@@ -400,3 +401,108 @@ get_function_name(FunArity) ->
 	{Name,Arity}.
 
 printer(X) -> io:format("~p\n",[X]).
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% SILENT EXECUTION %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+run(PoisRels,ExecFun,Timeout,CMode,CompareFun,silent) ->
+	{ok,FdR} = file:open("./tmp/repeat.txt",[append]),
+	{S,D} = run_silent(PoisRels,ExecFun,Timeout,CMode,CompareFun,mutation),
+ 	%io:format(FdR,"Total:~p Differents:~p Differents(%):~p\n",[S+D,D,trunc((D/(S+D))*10000)/100]).
+ 	io:format(FdR,"~p ~p\n",[S+D,D]).
+
+run(PoisRels,ExecFun,Timeout,CMode,CompareFun,silent,random) ->
+	{ok,FdR} = file:open("./tmp/repeat.txt",[append]),
+	{S,D} = run_silent(PoisRels,ExecFun,Timeout,CMode,CompareFun,random),
+ 	%io:format(FdR,"Total:~p Differents:~p Differents(%):~p\n",[S+D,D,trunc((D/(S+D))*10000)/100]).
+ 	io:format(FdR,"~p ~p\n",[S+D,D]).
+
+
+run_silent(PoisRels,ExecFun,Timeout,CMode,CompareFun,GenMode) -> 
+	try 
+		case whereis(secer) of
+		    undefined ->
+		        register(secer, self());
+		    _ ->
+		        already_started
+		end,
+
+		register(input_manager,spawn(secer_im_server,init,[])),
+		case GenMode of
+			random ->
+				register(input_gen,spawn(secer_input_gen,main_random,[PoisRels,ExecFun,Timeout,CMode,CompareFun]));
+			mutation ->
+				register(input_gen,spawn(secer_input_gen,main,[PoisRels,ExecFun,Timeout,CMode,CompareFun]))
+		end,
+		{FunName,Arity} = get_function_name(ExecFun),
+
+		receive
+			die -> 
+				exit(0);
+			continue ->
+				ok
+		after Timeout * 1000 ->
+				ok
+		end,
+		input_manager ! {get_results,self()},
+
+		receive
+			{Empty,Valued,Same,Different,_Cvg,IdPoiDict,Timeouted} -> 
+				{dict:size(Same),dict:size(Different)};
+			_ ->
+				printer(error),
+				error
+		end
+	catch 
+		E:R -> 
+			errorCatch
+	after
+		case {whereis(input_gen),whereis(input_manager)} of
+			{undefined,undefined} ->
+				ok;
+			{undefined,Pid} ->
+				%unregister(input_manager),
+				timer:exit_after(0,Pid,kill);
+			{Pid,undefined} ->
+				%unregister(input_gen),
+				timer:exit_after(0,Pid,kill);
+			{Pid1,Pid2} ->
+				%unregister(input_manager),
+				%unregister(input_gen),
+				timer:exit_after(0,Pid1,kill),
+				timer:exit_after(0,Pid2,kill)
+		end,
+
+		[{Old,New}|_] = PoisRels,
+		
+		FileOld = atom_to_list(element(1,Old)),
+		FileNew = atom_to_list(element(1,New)),
+
+		TmpM1 = "./tmp/"++filename:basename(FileOld,".erl")++"Tmp",
+		TmpM2 = "./tmp/"++filename:basename(FileNew,".erl")++"Tmp",
+
+		file:delete(TmpM1++".erl"),
+		file:delete(TmpM2++".erl"),
+		file:delete(TmpM1++".beam"),
+		file:delete(TmpM2++".beam"),
+
+		file:delete("./tmp/"++FileOld),
+		file:delete("./tmp/"++FileNew),
+
+		file:delete(filename:basename(FileOld,".erl")++".beam"),
+		file:delete(filename:basename(FileNew,".erl")++".beam"),
+		clean_tmp()
+	end.
+
+clean_tmp() ->
+	{ok,Files} = file:list_dir("./tmp/"),
+	[ begin
+		case filename:extension(File) of
+			".beam" ->
+				file:delete("./tmp/"++File);
+			_ ->
+				ok
+		end
+	  end || File <- Files].
+
+
