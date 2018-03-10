@@ -71,7 +71,46 @@ show(TO,TN,_) ->
 	FunShowTrace(TO),
 	io:format("Trace new version:\n"),
 	FunShowTrace(TN),
-	true.
+	true.     
+
+lists_comp_perf(TO, TN, _, Threshold) -> 
+  FunWhenTrue = 
+  	fun(_, _, _) ->
+  		ok
+  	end, 
+  lists_comp_perf_common(TO, TN, PoiRel, Threshold, FunWhenTrue).
+
+io_lists_comp_perf(TO, TN, PoiRel, Threshold) -> 
+  FunWhenTrue = 
+  	fun(I, VO, VN) ->
+  		io:format(
+  			"Faster Calculation: Length: ~p -> ~p vs ~p ms.\n", 
+  			[length(I), VO, VN])
+  	end, 
+  lists_comp_perf_common(TO, TN, PoiRel, Threshold, FunWhenTrue).
+
+lists_comp_perf_common(TO, TN, _, Threshold, FunWhenTrue) -> 
+  ZippedList = lists:zip(TO,TN),
+  lists:foldl(
+    fun
+      (_,{false,Msg}) ->
+        {false,Msg};
+      ({{_,{_, VO}},{_,{_, VN}}},_) when abs(VO - VN) =< Threshold -> 
+         true;
+      ({{_,{I, VO}},{_,{I, VN}}},_) when VO >= VN ->
+      	 FunWhenTrue(I, VO, VN),
+         true;
+      ({{_,{I, VO}},{_,{I, VN}}}, _) ->
+         {
+            false,
+            lists:flatten(
+              io_lib:format(
+                "Slower Calculation: Length: ~p -> ~p vs ~p µs.", 
+                [length(I), VO, VN]))
+          }
+    end,
+    true,
+    ZippedList).
 
 
 % ESTA FUNCION ACUMULA LAS TRAZAS DE POIS RELACIONADOS CON EL QUE DIO ERROR
