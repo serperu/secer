@@ -16,7 +16,7 @@
 %% 
 %% %CopyrightEnd%
 %%
--module(string_new).
+-module(string_error1).
 
 -export([len/1,equal/2,concat/2,chr/2,rchr/2,str/2,rstr/2,
 	 span/2,cspan/2,substr/2,substr/3,tokens/2,chars/2,chars/3]).
@@ -221,20 +221,17 @@ substr2([_|String], S) -> substr2(String, S-1).
 %       Tokens :: [Token :: nonempty_string()].
 
 tokens(S, Seps) ->
-  Start = os:timestamp(),
-  Res = case Seps of
-    [] ->
-        case S of
-      [] -> [];
-      [_|_] -> [S]
-        end;
-    [C] ->
+  case Seps of
+  	[] ->
+  	    case S of
+  		[] -> [];
+  		[_|_] -> [S]
+  	    end;
+  	[C] ->
         tokens_single_1(reverse(S), C, []);
-    [_|_] ->
-        tokens_multiple_1(reverse(S), Seps, [])
-  end,
-  timer:now_diff(os:timestamp(), Start), 
-  Res.
+  	[_|_] ->
+  	    tokens_multiple_1(reverse(S), Seps, [])
+  end.
 
 tokens_single_1([Sep|S], Sep, Toks) ->
     tokens_single_1(S, Sep, Toks);
@@ -246,14 +243,14 @@ tokens_single_1([], _, Toks) ->
 tokens_single_2([Sep|S], Sep, Toks, Tok) ->
     tokens_single_1(S, Sep, [Tok|Toks]);
 tokens_single_2([C|S], Sep, Toks, Tok) ->
-    tokens_single_2(S, Sep, Toks, [C|Tok]); % ORIGINAL: tokens_single_2(S, Sep, Toks, [C|Tok]); INTRODUCED BUG
+    tokens_single_2(S, Sep, Toks, [C|Tok]);
 tokens_single_2([], _Sep, Toks, Tok) ->
     [Tok|Toks].
 
 tokens_multiple_1([C|S], Seps, Toks) ->
     case member(C, Seps) of
-	true -> timer: (5), tokens_multiple_1(S, Seps, Toks);
-	false -> tokens_multiple_2(S, Seps, Toks, [C])
+	true -> tokens_multiple_1(S, Seps, Toks);
+	false -> [C | tokens_multiple_2(S, Seps, Toks, [C])] % ORIGINAL: tokens_multiple_2(S, Seps, Toks, [C]); INTRODUCED BUG
     end;
 tokens_multiple_1([], _Seps, Toks) ->
     Toks.

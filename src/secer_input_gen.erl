@@ -41,11 +41,11 @@ main(PoisRels,ExecFun,Time,CMode,CompareFun) ->
 		case Arity of
 			0 ->
 				instrument_code(PoisRels,CompareFun),
-
 				ModTmp1 = list_to_atom(filename:basename(FileOld,".erl")++"Tmp"),
 				ModTmp2 = list_to_atom(filename:basename(FileNew,".erl")++"Tmp"),
 
-				execute_input(ModTmp1,ModTmp2,FunName,[],CMode,Time);
+				execute_input(ModTmp1,ModTmp2,FunName,[],CMode,Time),
+				secer ! continue;
 			_ ->
 				% PART 1
 				{ParamClauses,TypeDicts} = analyze_types(FileOld,FunName,Arity),
@@ -70,6 +70,7 @@ main(PoisRels,ExecFun,Time,CMode,CompareFun) ->
 
 				ModTmp1 = list_to_atom(filename:basename(FileOld,".erl")++"Tmp"),
 				ModTmp2 = list_to_atom(filename:basename(FileNew,".erl")++"Tmp"),
+
 				Queue = lists:foldl(
 					fun(I,L) ->
 						RefEx = make_ref(),
@@ -191,7 +192,6 @@ main_random(PoisRels,ExecFun,Time,CMode,CompareFun) ->
 				ModTmp2 = list_to_atom(filename:basename(FileNew,".erl")++"Tmp"),
 				[execute_input(ModTmp1,ModTmp2,FunName,I,CMode,TimeOut) || I <- Inputs],
 				gen_random_proper_inputs(ModTmp1,ModTmp2,FunName,ParamClauses,TypeDicts,0,CMode,TimeOut)
-				
 					
 				% {Clause,Dic} = identify_clause_input(ParamClauses,TypeDicts,Input),
 				% validate_input(ModTmp1,ModTmp2,FunName,Queue,Clause,Dic,CMode,TimeOut),
@@ -424,10 +424,12 @@ execute_cuter(ModuleName1,ModuleName2,FunName,ParamClauses,Dicts,TimeOut) ->
 
 	Input = (catch generate_instance({Dic,Params})),
 	
-	case file:open("./tmp/nocuter.txt",[read]) of
+	case file:open("./config/nocuter.txt",[read]) of
 		{ok,_} ->
+			%printer("without cuter"),
 			[Input];
 		{error,_} ->
+			%printer("with cuter"),
 			CuterInputs = get_cuter_inputs(ModuleName1,ModuleName2,FunName,Input,TimeOut),
 			[Input|CuterInputs]
 	end.

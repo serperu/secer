@@ -34,18 +34,7 @@ run(PoisRels,ExecFun,Timeout,CMode,CompareFun) ->
 		input_manager ! {get_results,self()},
 
 		receive
-			{Empty,Valued,Same,Different,_Cvg,IdPoiDict,Timeouted} -> 
-				% ND = dict:fold(
-				% 	fun(K,V,Acc) ->
-				% 		dict:store(V,0,Acc)
-				% 	end,
-				% 	dict:new(),
-				% 	Different),
-				% io:format("TOTAL\n"),
-				% io:format("~p\n",[dict:size(Different)]),
-				% io:format("Differents\n"),
-				% io:format("~p\n",[dict:size(ND)]),
-				% io:get_line("STOP"),
+			{Empty,Valued,Same,Different,_Cvg,IdPoiDict,Timeouted,TraceDict} -> 
 				case dict:size(Different) of
 					0 ->
 						io:format("\n"),
@@ -140,39 +129,39 @@ run(PoisRels,ExecFun,Timeout,CMode,CompareFun) ->
 									EL)
 							end,
 							ErrorList)
-				end,%;
+				end;
 
 				% {ok,Fd} = file:open("./tmp/Results.txt",[write]),
 				% io:format(Fd,"~w.\n~w.",[Same,Different]);
 
 
 %%%%%%%%% ESCRIBIR Inputs.txt en ./tmp al ejecutar %%%%%%%%%
-{ok,FdI} = file:open("./tmp/Inputs.txt",[write]),
+% {ok,FdI} = file:open("./tmp/Inputs.txt",[write]),
 
-io:format(FdI,"*** NORMAL EXECUTIONS ***\n",[]), 
-dict:map(
-	fun(K,_) -> 
-		InputString0 = lists:flatten(io_lib:format("~w", [K])),
-		FinalInput0 = string:substr(InputString0,2,length(InputString0)-2),
-		io:format(FdI,"~s(~s)\n",[FunName,FinalInput0]) 
-	end,
-	Same),
-io:format(FdI,"*** ERROR EXECUTIONS ***\n",[]),
-dict:map(
-	fun(K,V) -> 
-		InputString0 = lists:flatten(io_lib:format("~w", [K])),
-		FinalInput0 = string:substr(InputString0,2,length(InputString0)-2),
-		io:format(FdI,"~s(~s)\n",[FunName,FinalInput0]) 
-	end,
-	Different),
-io:format(FdI,"*** TIMEOUTED EXECUTIONS ***\n",[]), 
-dict:map(
-	fun(K,_) -> 
-		InputString0 = lists:flatten(io_lib:format("~w", [K])),
-		FinalInput0 = string:substr(InputString0,2,length(InputString0)-2),
-		io:format(FdI,"~s(~s)\n",[FunName,FinalInput0]) 
-	end,
-	Timeouted);
+% io:format(FdI,"*** NORMAL EXECUTIONS ***\n",[]), 
+% dict:map(
+% 	fun(K,_) -> 
+% 		InputString0 = lists:flatten(io_lib:format("~w", [K])),
+% 		FinalInput0 = string:substr(InputString0,2,length(InputString0)-2),
+% 		io:format(FdI,"~s(~s)\n",[FunName,FinalInput0]) 
+% 	end,
+% 	Same),
+% io:format(FdI,"*** ERROR EXECUTIONS ***\n",[]),
+% dict:map(
+% 	fun(K,V) -> 
+% 		InputString0 = lists:flatten(io_lib:format("~w", [K])),
+% 		FinalInput0 = string:substr(InputString0,2,length(InputString0)-2),
+% 		io:format(FdI,"~s(~s)\n",[FunName,FinalInput0]) 
+% 	end,
+% 	Different),
+% io:format(FdI,"*** TIMEOUTED EXECUTIONS ***\n",[]), 
+% dict:map(
+% 	fun(K,_) -> 
+% 		InputString0 = lists:flatten(io_lib:format("~w", [K])),
+% 		FinalInput0 = string:substr(InputString0,2,length(InputString0)-2),
+% 		io:format(FdI,"~s(~s)\n",[FunName,FinalInput0]) 
+% 	end,
+% 	Timeouted);
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -264,18 +253,38 @@ print_detected_error(FunName,IdPoiDict,ErrorInput,Val) ->
 			end,
 			{[],Poi1},
 			Poi1List),
-	{T2,_} = 
-		lists:foldl(
-			fun({Id,T},{Acc,P}) ->
-				case dict:find(Id,IdPoiDict) of
-					{ok,P} -> 
-						{[T|Acc],P};
-					_ ->
-						{Acc,P}
-				end
-			end,
-			{[],Poi2},
-			Poi2List), 
+	{T2,_} = case is_list(Poi2) of
+		true ->
+			lists:foldl(
+				fun({Id,T},{Acc,PL}) ->
+					case dict:find(Id,IdPoiDict) of
+						{ok,P} -> 
+							case lists:member(P,PL) of 
+								true ->
+									{[T|Acc],PL};
+								_ ->
+									{Acc,PL}
+							end;
+						_ ->
+							{Acc,PL}
+					end
+				end,
+				{[],Poi2},
+				Poi2List);
+		false ->
+			lists:foldl(
+				fun({Id,T},{Acc,P}) ->
+					case dict:find(Id,IdPoiDict) of
+						{ok,P} -> 
+							{[T|Acc],P};
+						_ ->
+							{Acc,P}
+					end
+				end,
+				{[],Poi2},
+				Poi2List) 
+	end,
+
 	OriginalPoi1 = poi_translation(Poi1),
 	OriginalPoi2 = poi_translation(Poi2),
 
@@ -297,6 +306,8 @@ trace_organization(V,K,Dic,L) ->
 	{T1,T2,Msg,P1,P2} = V,
 	case Msg of
 		"The length of both traces differs" ->
+			% printer({T1,T2}),
+			% io:get_line("STOP"),
 			case length(T1) > length(T2) of
 				true ->
 					case L of
@@ -419,12 +430,14 @@ printer(X) -> io:format("~p\n",[X]).
 run(PoisRels,ExecFun,Timeout,CMode,CompareFun,silent) ->
 	{ok,FdR} = file:open("./tmp/repeat.txt",[append]),
 	{S,D} = run_silent(PoisRels,ExecFun,Timeout,CMode,CompareFun,mutation),
+	%io:format("~p ~p\n",[S,D]),
  	%io:format(FdR,"Total:~p Differents:~p Differents(%):~p\n",[S+D,D,trunc((D/(S+D))*10000)/100]).
  	io:format(FdR,"~p ~p\n",[S+D,D]).
 
 run(PoisRels,ExecFun,Timeout,CMode,CompareFun,silent,random) ->
 	{ok,FdR} = file:open("./tmp/repeat.txt",[append]),
 	{S,D} = run_silent(PoisRels,ExecFun,Timeout,CMode,CompareFun,random),
+	%io:format("~p ~p\n",[S,D]),
  	%io:format(FdR,"Total:~p Differents:~p Differents(%):~p\n",[S+D,D,trunc((D/(S+D))*10000)/100]).
  	io:format(FdR,"~p ~p\n",[S+D,D]).
 
@@ -456,20 +469,8 @@ run_silent(PoisRels,ExecFun,Timeout,CMode,CompareFun,GenMode) ->
 				ok
 		end,
 		input_manager ! {get_results,self()},
-
 		receive
-			{Empty,Valued,Same,Different,_Cvg,IdPoiDict,Timeouted} -> 
-				% ND = dict:fold(
-				% 	fun(K,V,Acc) ->
-				% 		dict:store(V,0,Acc)
-				% 	end,
-				% 	dict:new(),
-				% 	Different),
-				% io:format("TOTAL\n"),
-				% io:format("~p\n",[dict:size(Different)]),
-				% io:format("Differents\n"),
-				% io:format("~p\n",[dict:size(ND)]),
-				% io:get_line("STOP"),
+			{Empty,Valued,Same,Different,_Cvg,IdPoiDict,Timeouted,TraceDict} -> 
 				{dict:size(Same),dict:size(Different)};
 			_ ->
 				printer(error),

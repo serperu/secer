@@ -10,7 +10,7 @@
 
 		same_trace = dict:new(),
 		different_trace = dict:new(), %KEY: Input
-		trace_dict = dict:new(),		  %KEY: Trace
+		trace_dict = dict:new(),	  %KEY: Trace
 
 		relations,
 		id_poi_dic,
@@ -124,7 +124,7 @@ loop(State) ->
 				undef ->
 			 		compare_default(Trace1,Trace2,State);
 			 	F ->
-			 		compare_whole_trace(Trace1,Trace2,State#state.id_poi_dic,F)
+			 		compare_whole_trace(Trace1,Trace2,State#state.id_poi_dic,F,State#state.relations)
 			 		%compare_user(Trace1,Trace2,State,F)
 			end,
 			% printer("Trace1"),
@@ -287,7 +287,8 @@ loop(State) ->
 								0,
 								State#state.trace_dict)
 					};
-				_ ->
+				X ->
+					printer(X),
 					printer("Unexpected error"),
 					exit("Unexpected message")
 			end,
@@ -296,7 +297,7 @@ loop(State) ->
 			{Empty,Valued,Same,Different,Cvg} = 
 				{State#state.empty_trace, State#state.valued_trace,
 					State#state.same_trace,State#state.different_trace,State#state.cvg},
-			Pid ! {Empty,Valued,Same,Different,Cvg,State#state.id_poi_dic,State#state.timeouted_trace};
+			Pid ! {Empty,Valued,Same,Different,Cvg,State#state.id_poi_dic,State#state.timeouted_trace,State#state.trace_dict};
 
 		Other ->
 			erlang:exit(
@@ -387,7 +388,7 @@ equality({POI1,Val1},{POI2,Val2},Rels) ->
 			{error_no_relation,POI1,POI2}
 	end.
 
-compare_whole_trace(T1,T2,Dic,F) ->
+compare_whole_trace(T1,T2,Dic,F,PoiRels) ->
 	%{ok,POI2} = dict:find(Id2,S#state.id_poi_dic),
 	{NewT1,_} = lists:mapfoldl(
 		fun({Id,V},D) ->
@@ -403,7 +404,7 @@ compare_whole_trace(T1,T2,Dic,F) ->
 		end,
 		Dic,
 		T2),
-	F(NewT1,NewT2).
+	F(NewT1,NewT2,PoiRels).
 
 % COMPARACION EN CADA ELEMENTO DE LA TRAZA (AUN NO IMPLEMENTADO EXPLICITAMENTE)
 compare_user([],[],_,_) -> true;

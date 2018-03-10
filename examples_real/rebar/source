@@ -1,0 +1,16 @@
+Commit that introduces the bug:
+
+https://github.com/rebar/rebar/commit/b816c69e343c8fd757c59fe8703eeda597f4da0a#diff-6384d349a244230614c6058ca8c5cd89
+
+Commit that fixes the bug:
+
+https://github.com/rebar/rebar/commit/c43f2e55492aead6d2b5f483771cba0ac9e1bdab
+
+before bug:
+https://github.com/rebar/rebar/blob/894858dede9c28d6c35d9f9db0ff9f37e6881a60/src/rebar_port_compiler.erl
+
+buggy:
+https://github.com/rebar/rebar/blob/b816c69e343c8fd757c59fe8703eeda597f4da0a/src/rebar_port_compiler.erl
+
+fixed:
+https://github.com/rebar/rebar/blob/c43f2e55492aead6d2b5f483771cba0ac9e1bdab/src/rebar_port_compiler.erl
