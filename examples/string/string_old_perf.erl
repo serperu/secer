@@ -16,7 +16,7 @@
 %% 
 %% %CopyrightEnd%
 %%
--module(string_new).
+-module(string_old).
 
 -export([len/1,equal/2,concat/2,chr/2,rchr/2,str/2,rstr/2,
 	 span/2,cspan/2,substr/2,substr/3,tokens/2,chars/2,chars/3]).
@@ -215,53 +215,32 @@ substr2([_|String], S) -> substr2(String, S-1).
 %% tokens(String, Seperators).
 %%  Return a list of tokens seperated by characters in Seperators.
 
-% -spec tokens(String, SeparatorList) -> Tokens when
+-spec tokens(string(), string()) -> any(). %when
 %       String :: string(),
 %       SeparatorList :: string(),
 %       Tokens :: [Token :: nonempty_string()].
 
 tokens(S, Seps) ->
-  case Seps of
-    [] ->
-        case S of
-      [] -> [];
-      [_|_] -> [S]
-        end;
-    [C] ->
-        tokens_single_1(reverse(S), C, []);
-    [_|_] ->
-        tokens_multiple_1(reverse(S), Seps, [])
-  end.
+  Start = os:timestamp(),
+  Res = tokens1(S, Seps, []), 
+  timer:now_diff(os:timestamp(), Start), 
+  Res.
 
-tokens_single_1([Sep|S], Sep, Toks) ->
-    tokens_single_1(S, Sep, Toks);
-tokens_single_1([C|S], Sep, Toks) ->
-    tokens_single_2(S, Sep, Toks, [C]);
-tokens_single_1([], _, Toks) ->
-    Toks.
-
-tokens_single_2([Sep|S], Sep, Toks, Tok) ->
-    tokens_single_1(S, Sep, [Tok|Toks]);
-tokens_single_2([C|S], Sep, Toks, Tok) ->
-    tokens_single_2(S, Sep, Toks, [C|Tok]); % ORIGINAL: tokens_single_2(S, Sep, Toks, [C|Tok]); INTRODUCED BUG
-tokens_single_2([], _Sep, Toks, Tok) ->
-    [Tok|Toks].
-
-tokens_multiple_1([C|S], Seps, Toks) ->
+tokens1([C|S], Seps, Toks) ->
     case member(C, Seps) of
-	true -> tokens_multiple_1(S, Seps, Toks);
-	false -> tokens_multiple_2(S, Seps, Toks, [C])
+	true -> tokens1(S, Seps, Toks);
+	false -> tokens2(S, Seps, Toks, [C])
     end;
-tokens_multiple_1([], _Seps, Toks) ->
-    Toks.
+tokens1([], _Seps, Toks) ->
+    reverse(Toks).
 
-tokens_multiple_2([C|S], Seps, Toks, Tok) ->
+tokens2([C|S], Seps, Toks, Cs) ->
     case member(C, Seps) of
-	true -> tokens_multiple_1(S, Seps, [Tok|Toks]);
-	false -> tokens_multiple_2(S, Seps, Toks, [C|Tok])
+	true -> tokens1(S, Seps, [reverse(Cs)|Toks]);
+	false -> tokens2(S, Seps, Toks, [C|Cs])
     end;
-tokens_multiple_2([], _Seps, Toks, Tok) ->
-    [Tok|Toks].
+tokens2([], _Seps, Toks, Cs) ->
+    reverse([reverse(Cs)|Toks]).
 
 -spec chars(Character, Number) -> String when
       Character :: char(),

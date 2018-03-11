@@ -1,7 +1,5 @@
 -module(happy_new).
--include_lib("eunit/include/eunit.hrl").
 -export([main/2]).
-% -compile(export_all).
 -import(lists, [map/2, member/2, sort/1, sum/1]).
 is_happy(X, XS) ->
 	if
@@ -29,14 +27,3 @@ happy(X, Top, XS) ->
 -spec main(pos_integer(),pos_integer()) -> [pos_integer()].
 main(N, M) -> 
 	happy(N, M, []).
-
-
-%%%%%%%%%%%%%%%%%%%%
-% TESTS
-%%%%%%%%%%%%%%%%%%%%
-
-main_1_test() ->
-	?assertEqual(main(0,0), []).
-
-main_2_test() ->
-	?assertEqual(main(100, 5), [100,103,109,129,130]).

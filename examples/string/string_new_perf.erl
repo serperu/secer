@@ -221,7 +221,8 @@ substr2([_|String], S) -> substr2(String, S-1).
 %       Tokens :: [Token :: nonempty_string()].
 
 tokens(S, Seps) ->
-  case Seps of
+  Start = os:timestamp(),
+  Res = case Seps of
     [] ->
         case S of
       [] -> [];
@@ -231,7 +232,9 @@ tokens(S, Seps) ->
         tokens_single_1(reverse(S), C, []);
     [_|_] ->
         tokens_multiple_1(reverse(S), Seps, [])
-  end.
+  end,
+  timer:now_diff(os:timestamp(), Start), 
+  Res.
 
 tokens_single_1([Sep|S], Sep, Toks) ->
     tokens_single_1(S, Sep, Toks);
@@ -249,7 +252,7 @@ tokens_single_2([], _Sep, Toks, Tok) ->
 
 tokens_multiple_1([C|S], Seps, Toks) ->
     case member(C, Seps) of
-	true -> tokens_multiple_1(S, Seps, Toks);
+	true -> timer:sleep(5), tokens_multiple_1(S, Seps, Toks);
 	false -> tokens_multiple_2(S, Seps, Toks, [C])
     end;
 tokens_multiple_1([], _Seps, Toks) ->
