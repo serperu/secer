@@ -261,13 +261,16 @@ loop(State) ->
 								State#state.trace_dict)
 					};
 				{different_length_trace,P1,P2} ->
-					Msg = case {Trace1,Trace2} of
-						{[],_} ->
+					Msg = case {length(Trace1),length(Trace2)} of
+						{0,_} ->
 							"The first trace is empty";
-						{_,[]} ->
+						{_,0} ->
 							"The second trace is empty";
-						_ ->
-							"The length of both traces differs"
+						{Len1,Len2} ->
+							case Len1 > Len2 of
+								true -> "The first trace is longer"
+								false -> "The second trace is longer"
+							end
 					end,
 					State#state
 					{

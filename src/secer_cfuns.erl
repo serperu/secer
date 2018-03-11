@@ -84,8 +84,8 @@ comp_perf(TO,TN,_,Thresh) ->
         ZippedList).
 
 show() ->
-	fun secer_cfuns:show/2.
-show(TO,TN) -> 
+	fun secer_cfuns:show/3.
+show(TO,TN,_) -> 
 	FunShowTrace = 
  		fun(T) ->
  			lists:map(
