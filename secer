@@ -37,20 +37,29 @@ main(["-pois", Pois, "-funs", FunList, "-to", Time, "-cfun", CFun]) ->
 	{ok,CFunTokens,_} = case length(Tokens) of
 		2 ->
 			[Tok1,Tok2] = Tokens,
-			if Tok1 == "secer" ->
-					case Tok2 of
-						"lower_than" -> erl_scan:string("fun secer_cfuns:lower_than/3.");
-						"greater_than" -> erl_scan:string("fun secer_cfuns:greater_than/3.");
-						"different" -> erl_scan:string("fun secer_cfuns:unequal/3.");
-						"show" -> erl_scan:string("fun secer_cfuns:show/3.");
-						_ -> secer_functions(), halt(1)
+			case Tok1 of
+				 "secer" ->
+					Existent = 
+						lists:prefix("lower_than",Tok2) or 
+						lists:prefix("greater_than",Tok2) or 
+						lists:prefix("different",Tok2) or 
+						lists:prefix("show",Tok2) or 
+						lists:prefix("comp_perf",Tok2) or 
+						lists:prefix("lists_comp_perf",Tok2),
+					case Existent of
+						true ->
+							erl_scan:string("secer_cfuns:"++Tok2++".");
+						_ ->
+							secer_functions(), 
+							halt(1)
 					end;
-				true ->
+				_ ->
 					erl_scan:string("fun "++CFun++"/3.")
 			end;
 		_ ->
 			erl_scan:string("fun "++CFun++"/3.")
 	end,
+
 	{ok,CFunAbsForm} = erl_parse:parse_exprs(CFunTokens),
 	{value,CompareFun,_} = erl_eval:exprs(CFunAbsForm,[]),
 
@@ -674,10 +683,12 @@ usage(2) ->
 
 secer_functions() ->
 	io:format("The currently available secer compare functions are:
-    lower_than
-    greater_than
-    different
-    show\n").
+    lower_than()
+    greater_than()
+    different()
+    show()
+    comp_perf()
+    lists_comp_perf()\n").
 help_message() ->
 	"
   Usage: secer [--help] -f file -li line -var variable [-oc occurrence] 

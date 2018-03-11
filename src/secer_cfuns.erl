@@ -1,6 +1,8 @@
 -module(secer_cfuns).
--export([lower_than/3,greater_than/3,unequal/3,show/3]).
+-export([lower_than/0,greater_than/0,different/0,show/0,comp_perf/1,lists_comp_perf/1]).
 
+lower_than() ->
+	fun secer_cfuns:lower_than/3.
 lower_than(TO,TN,PoiRel) -> 
 	ZippedList = lists:zip(TO,TN),
 	lists:foldl(
@@ -20,6 +22,8 @@ lower_than(TO,TN,PoiRel) ->
 		true,
 		ZippedList).
 
+greater_than() ->
+	fun secer_cfuns:greater_than/3.
 greater_than(TO,TN,PoiRel) -> 
 	ZippedList = lists:zip(TO,TN),
 	lists:foldl(
@@ -39,7 +43,9 @@ greater_than(TO,TN,PoiRel) ->
 		true,
 		ZippedList).
 
-unequal(TO,TN,PoiRel) ->
+different() ->
+	fun secer_cfuns:different/3.
+different(TO,TN,PoiRel) ->
 	ZippedList = lists:zip(TO,TN),
 	lists:foldl(
 		fun
@@ -58,7 +64,28 @@ unequal(TO,TN,PoiRel) ->
 		true,
 		ZippedList).
 
-show(TO,TN,_) -> 
+comp_perf(Thresh) -> 
+	fun(TO, TN, PoiRel) -> 
+		comp_perf(TO, TN, PoiRel, Thresh) 
+	end.
+
+comp_perf(TO,TN,_,Thresh) ->
+    ZippedList = lists:zip(TO,TN),
+    lists:foldl(
+        fun
+            (_,{false,Msg,P1,P2}) ->
+                {false,Msg,P1,P2};
+            ({{_,VO},{_,VN}},_) when (VO + Thresh) >= VN ->
+                true;
+            ({{P1,_},{P2,_}},_) ->
+                {false,"Slower Calculation",P1,P2}
+        end,
+        true,
+        ZippedList).
+
+show() ->
+	fun secer_cfuns:show/2.
+show(TO,TN) -> 
 	FunShowTrace = 
  		fun(T) ->
  			lists:map(
@@ -73,7 +100,12 @@ show(TO,TN,_) ->
 	FunShowTrace(TN),
 	true.     
 
-lists_comp_perf(TO, TN, _, Threshold) -> 
+
+lists_comp_perf(Threshold) -> 
+	fun (TO, TN, PoiRel) -> 
+		lists_comp_perf(TO, TN, PoiRel, Threshold) 
+	end.
+lists_comp_perf(TO, TN, PoiRel, Threshold) -> 
   FunWhenTrue = 
   	fun(_, _, _) ->
   		ok
@@ -93,20 +125,21 @@ lists_comp_perf_common(TO, TN, _, Threshold, FunWhenTrue) ->
   ZippedList = lists:zip(TO,TN),
   lists:foldl(
     fun
-      (_,{false,Msg}) ->
-        {false,Msg};
+      (_,{false,Msg,P1,P2}) ->
+        {false,Msg,P1,P2};
       ({{_,{_, VO}},{_,{_, VN}}},_) when abs(VO - VN) =< Threshold -> 
          true;
       ({{_,{I, VO}},{_,{I, VN}}},_) when VO >= VN ->
       	 FunWhenTrue(I, VO, VN),
          true;
-      ({{_,{I, VO}},{_,{I, VN}}}, _) ->
+      ({{PO,{I, VO}},{PN,{I, VN}}}, _) ->
          {
             false,
             lists:flatten(
               io_lib:format(
                 "Slower Calculation: Length: ~p -> ~p vs ~p µs.", 
-                [length(I), VO, VN]))
+                [length(I), VO, VN])),
+            PO,PN
           }
     end,
     true,

@@ -19,7 +19,7 @@ poiNewPerformance() ->
 	{'string_new_perf.erl',236,call,1}.
 
 rel() ->
-	[{poi1Old(),poi1New()}].
+	[{poiOld(),poiNew()}].
 relError() ->
 	[{poiOldError(),poiNewError1()},{poiOldError(),poiNewError2()}].
 relPerformance() ->

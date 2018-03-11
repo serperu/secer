@@ -16,7 +16,7 @@
 %% 
 %% %CopyrightEnd%
 %%
--module(string_new).
+-module(string_new_perf).
 
 -export([len/1,equal/2,concat/2,chr/2,rchr/2,str/2,rstr/2,
 	 span/2,cspan/2,substr/2,substr/3,tokens/2,chars/2,chars/3]).
