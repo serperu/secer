@@ -268,7 +268,7 @@ loop(State) ->
 							"The second trace is empty";
 						{Len1,Len2} ->
 							case Len1 > Len2 of
-								true -> "The first trace is longer"
+								true -> "The first trace is longer";
 								false -> "The second trace is longer"
 							end
 					end,

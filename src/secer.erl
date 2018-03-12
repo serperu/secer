@@ -305,24 +305,19 @@ print_detected_error(FunName,IdPoiDict,ErrorInput,Val) ->
 trace_organization(V,K,Dic,L) ->
 	{T1,T2,Msg,P1,P2} = V,
 	case Msg of
-		"The length of both traces differs" ->
-			% printer({T1,T2}),
-			% io:get_line("STOP"),
-			case length(T1) > length(T2) of
-				true ->
-					case L of
-						[] ->
-							dict:store({P1,P2},[{1,K,1}],Dic);
-						_ ->
-							trace_type_organization(P1,P2,K,L,Dic,1)
-					end;
-				false ->
-					case L of
-						[] ->
-							dict:store({P1,P2},[{1,K,2}],Dic);
-						_ ->
-							trace_type_organization(P1,P2,K,L,Dic,2)
-					end
+		"The first trace is longer" ->
+			case L of
+				[] ->
+					dict:store({P1,P2},[{1,K,1}],Dic);
+				_ ->
+					trace_type_organization(P1,P2,K,L,Dic,1)
+			end;
+		"The second trace is longer" ->
+			case L of
+				[] ->
+					dict:store({P1,P2},[{1,K,2}],Dic);
+				_ ->
+					trace_type_organization(P1,P2,K,L,Dic,2)
 			end;
 		"The first trace is empty" ->
 			case L of
