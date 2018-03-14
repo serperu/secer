@@ -4,7 +4,6 @@
 
 -record(nodeinfo, {id,env,bound,free}).
 
-
 main(POIList,CompareFun) ->
 
 		%START
@@ -12,6 +11,11 @@ main(POIList,CompareFun) ->
 		{PoiListOld,PoiListNew} = divide_poi_list(NewPoiList),
 		FileOld = atom_to_list(element(1,lists:nth(1,PoiListOld))),
 		FileNew = atom_to_list(element(1,lists:nth(1,PoiListNew))),
+
+		load_dependencies(FileOld,FileNew),
+		
+		ModuleNameOld = list_to_atom(filename:basename(FileOld,".erl")),
+		ModuleNameNew = list_to_atom(filename:basename(FileNew,".erl")),
 
 		%OLD FILE
 		{LineColPOIsOld,ExplicitPOIsOld} = lists:foldl(
@@ -39,9 +43,9 @@ main(POIList,CompareFun) ->
 			begin 
 				{_,Program} = read_expression(POI),
 				{_,{SLine,_},_} = POI,
-				{ok,ChangedFd} = file:open(?TMP_PATH++FileOld,[write,{encoding, unicode}]),
+				{ok,ChangedFd} = file:open(?TMP_PATH++atom_to_list(ModuleNameOld)++".erl",[write,{encoding, unicode}]),
 				io:format(ChangedFd,"~s",[Program]),
-				{ok,AST0} = epp:parse_file(?TMP_PATH++FileOld,[],[]),
+				{ok,AST0} = epp:parse_file(?TMP_PATH++atom_to_list(ModuleNameOld)++".erl",[],[]),
 				{{FunName,FunArity},Path} = (catch lists:foldl(fun find_line_col_pois/2,{SLine,poi_ref},AST0)),
 				{get_matching_id(FunName,FunArity,Path,AnnASTOld),POI} 
 			end || POI <- LineColPOIsOld],
@@ -52,7 +56,6 @@ main(POIList,CompareFun) ->
 		IdPoiDict = dict:from_list(OrderIdPoiListOld),
 
 		get_replaced_AST(FileOld,OrderIdPoiListOld,AnnASTOld),
-
 		%NEW FILE
 		{LineColPOIsNew,ExplicitPOIsNew} = lists:foldl(
 			fun(P,{LCP,EP}) ->
@@ -78,9 +81,9 @@ main(POIList,CompareFun) ->
 			begin 
 				{_,Program} = read_expression(POI),
 				{_,{SLine,_},_} = POI,
-				{ok,ChangedFd} = file:open(?TMP_PATH++FileNew,[write,{encoding, unicode}]),
+				{ok,ChangedFd} = file:open(?TMP_PATH++atom_to_list(ModuleNameNew)++".erl",[write,{encoding, unicode}]),
 				io:format(ChangedFd,"~s",[Program]),
-				{ok,AST0} = epp:parse_file(?TMP_PATH++FileNew,[],[]),
+				{ok,AST0} = epp:parse_file(?TMP_PATH++atom_to_list(ModuleNameNew)++".erl",[],[]),
 				{{FunName,FunArity},Path} = (catch lists:foldl(fun find_line_col_pois/2,{SLine,poi_ref},AST0)),
 				{get_matching_id(FunName,FunArity,Path,AnnASTNew),POI} 
 			end || POI <- LineColPOIsNew],
@@ -99,6 +102,43 @@ main(POIList,CompareFun) ->
 				input_manager ! {set_fun,CompareFun}
 		end.
 
+%%%%%%%%%%%%%%%%%%%%%%
+%% LOAD DEPENDENCES %%
+%%%%%%%%%%%%%%%%%%%%%%
+load_dependencies(FileOld,FileNew) ->
+	OldDir = filename:dirname(FileOld),
+	NewDir = filename:dirname(FileNew),
+	case OldDir of
+		NewDir ->
+			{ok,Files} = file:list_dir(OldDir),
+			[begin
+				case filename:extension(F) of
+					".erl" ->
+						ModuleName = filename:basename(F,".erl"),
+						compile:file(OldDir++"/"++F,[{outdir,?TMP_PATH}]),
+						code:purge(list_to_atom(ModuleName)),
+						code:load_abs(?TMP_PATH++ModuleName);
+					_ -> 
+						ok
+				end
+			end || F <- Files];
+		_ ->
+			{ok,FilesO} = file:list_dir(OldDir),
+			{ok,FilesN} = file:list_dir(NewDir),
+			Files = FilesO ++ FilesN,
+			[begin
+				case filename:extension(F) of
+					".erl" ->
+						ModuleName = filename:basename(F,".erl"),
+						compile:file(F,[{outdir,?TMP_PATH}]),
+						code:purge(list_to_atom(ModuleName)),
+						code:load_abs(?TMP_PATH++ModuleName);
+					_ -> 
+						ok
+				end
+			end || F <- Files]
+	end.
+
 %%%%%%%%%%%%%%%%%%%%%
 %%% LINE COL POIS %%%
 %%%%%%%%%%%%%%%%%%%%%
@@ -115,9 +155,10 @@ read_expression(Poi) ->
 	L1Replaced = string:substr(L1,ColI),
 	PoiExpr = case LineI of
 		LineF ->
-			string:substr(L1Replaced,1,ColF+1 - ColI);
+			%string:substr(L1Replaced,1,ColF+1 - ColI);
+			string:substr(L1Replaced,1,ColF - ColI);
 		_ ->
-			ModList = modifyLastElem(T,ColF+1,[]),
+			ModList = modifyLastElem(T,ColF,[]),
 			lists:foldr(
 				fun(L,S) ->
 					lists:concat([S,"\n",L])
@@ -132,14 +173,14 @@ read_expression(Poi) ->
 		LineF ->
 			ModLine = lists:nth(LineI,Tokens),
 			Begin = string:substr(ModLine,1,ColI-1),
-			End = string:substr(ModLine,ColF+1,length(ModLine)-ColF),
+			End = string:substr(ModLine,ColF,length(ModLine)-(ColF-1)),
 			[Begin++"poi_ref"++End];
 		_ ->
 			[FirstLine|Rest] = lists:sublist(Tokens,LineI,LineF-LineI+1),
 			Begin = string:substr(FirstLine,1,ColI-1),
 
 			Last = lists:last(Rest),
-			End = string:substr(Last,ColF+1,length(Last)-ColF),
+			End = string:substr(Last,ColF,length(Last)-(ColF-1)),
 			[Begin++"poi_ref"++End]
 	end,
 	RemainingTail = lists:sublist(Tokens,LineF+1,length(Tokens)-LineF),
@@ -255,6 +296,8 @@ poi_map(Poi) ->
 			{F,L,case_expr,O};
 		{F,L,call,O} ->
 			{F,L,application,O};
+		{F,L,'try',O} ->
+			{F,L,try_expr,O};
 		_ ->
 			Poi
 	end.
@@ -295,6 +338,28 @@ children_list(L,Line,Poi_Name,Type,Oc,CurrentOc) ->
 		{Line,Poi_Name,Type,Oc,CurrentOc},
 		L).
 
+child(L,{Line,null,list,Oc,CurrentOc}) ->
+	lists:foldl(
+		fun(E,{Li,Poi,T,O,CurOc}) ->
+			{_,Type,{_,IfLine,_,_},_} = E,
+			case {Type,IfLine} of
+				{list,Li} when O == CurOc -> 
+					throw(erl_syntax:get_ann(E));
+				{nil,Li} when O == CurOc -> 
+					throw(erl_syntax:get_ann(E));	
+				{list,Li} ->
+					{_,_,_,_,NewCurrentOc} = children_list(erl_syntax:subtrees(E),Li,Poi,T,O,CurOc+1),
+					{Li,Poi,T,O,NewCurrentOc};
+				{nil,Li} ->
+					{_,_,_,_,NewCurrentOc} = children_list(erl_syntax:subtrees(E),Li,Poi,T,O,CurOc+1),
+					{Li,Poi,T,O,NewCurrentOc};
+				_ ->
+					{_,_,_,_,NewCurrentOc} = children_list(erl_syntax:subtrees(E),Li,Poi,T,O,CurOc),
+					{Li,Poi,T,O,NewCurrentOc}
+			end
+		end,
+		{Line,null,list,Oc,CurrentOc},
+		L);
 child(L,{Line,null,ExprType,Oc,CurrentOc}) ->
 	lists:foldl(
 		fun(E,{Li,Poi,T,O,CurOc}) ->
@@ -303,10 +368,10 @@ child(L,{Line,null,ExprType,Oc,CurrentOc}) ->
 				{T,Li} when O == CurOc -> 
 					throw(erl_syntax:get_ann(E));
 				{T,Li} ->
-					{_,_,_,_,NewCurrentOc} = children_list(erl_syntax:subtrees(E),Li,Poi,T,O,CurOc),
-					{Li,Poi,T,O,NewCurrentOc+1};
+					{_,_,_,_,NewCurrentOc} = children_list(erl_syntax:subtrees(E),Li,Poi,T,O,CurOc+1),
+					{Li,Poi,T,O,NewCurrentOc};
 				_ ->
-					{_,_,_,_,NewCurrentOc} =children_list(erl_syntax:subtrees(E),Li,Poi,T,O,CurOc),
+					{_,_,_,_,NewCurrentOc} = children_list(erl_syntax:subtrees(E),Li,Poi,T,O,CurOc),
 					{Li,Poi,T,O,NewCurrentOc}
 			end
 		end,
@@ -320,8 +385,8 @@ child(L,{Line,Poi_Name,ExprType,Oc,CurrentOc}) ->
 				{T,Li,Poi} when O == CurOc -> 
 					throw(erl_syntax:get_ann(E));
 				{T,Li,Poi} ->
-					{_,_,_,_,NewCurrentOc} = children_list(erl_syntax:subtrees(E),Li,Poi,T,O,CurOc),
-					{Li,Poi,T,O,NewCurrentOc+1};
+					{_,_,_,_,NewCurrentOc} = children_list(erl_syntax:subtrees(E),Li,Poi,T,O,CurOc+1),
+					{Li,Poi,T,O,NewCurrentOc};
 				_ ->
 					{_,_,_,_,NewCurrentOc} =children_list(erl_syntax:subtrees(E),Li,Poi,T,O,CurOc),
 					{Li,Poi,T,O,NewCurrentOc}
@@ -386,7 +451,7 @@ instrument_AST(AST,PoiId) ->
 map_instrument_AST(Node,{PoiId,Found}) ->
 	case Found of
 		true ->
-			{Node,{PoiId,Found}};
+		 	{Node,{PoiId,Found}};
 		_ ->
 			case erl_syntax:type(Node) of
 				function ->
@@ -395,38 +460,49 @@ map_instrument_AST(Node,{PoiId,Found}) ->
 						unfound -> 
 							{Node,{PoiId,Found}};
 						_ -> 
-							%Ann_node = erl_syntax_lib:annotate_bindings(Node,ordsets:new()),
 							% POSIBLEMENTE ESTO SE PUEDE SACAR FUERA (Se ejecuta en cada POI)
 							Var_list = sets:to_list(erl_syntax_lib:variables(Node)),
 							add_vars_to_var_gen(Var_list),
-							{instrument(Node,SC_path),{PoiId,true}}
+							{instrument_all_paths(Node,SC_path),{PoiId,true}}
 					end;
 				_ -> 
 					{Node,{PoiId,Found}}
 			end
 	end.
 
+instrument_all_paths(Node,PathList) ->
+	lists:foldl(
+		fun(P,N) ->
+			instrument(N,P)
+		end,
+		Node,
+		PathList).
+
 %%%%%%%%%%%%%%%%
 %%% GET PATH %%%
 %%%%%%%%%%%%%%%%
 get_path(Root,PoiId) ->
-	try 
-		list_of_lists(erl_syntax:subtrees(Root),PoiId,[]),
-		unfound
-	catch
-		Path -> Path
+	PathList = list_of_lists(erl_syntax:subtrees(Root),PoiId,[],[]),
+	case PathList of
+		[] ->
+			unfound;
+		_ ->
+			PathList
 	end.
-list_of_lists(L,PoiId,Path) ->
-	lists:foldl(
-		fun(E, {PId,NAcc}) ->
-			list(E,{PId,NAcc},1,Path),
-			{PId,NAcc + 1}
+
+list_of_lists(L,PoiId,Path,PathList) ->
+	{_,_,NewPathList} = lists:foldl(
+		fun(E, {PId,NAcc,PL}) ->
+			{_,_,NPL} = list(E,{PId,NAcc},1,Path,PL),
+			{PId,NAcc + 1,NPL}
 		end,
-		{PoiId,1},
-		L).
-list(L,{PoiId,N},_,Path) ->
+		{PoiId,1,PathList},
+		L),
+	NewPathList.
+
+list(L,{PoiId,N},_,Path,PathList) ->
 	lists:foldl(
-		fun(E, {PId,MAcc}) ->
+		fun(E, {PId,MAcc,PL}) ->
 			New_path = [{erl_syntax:type(E),N,MAcc}|Path],
 			Ann = erl_syntax:get_ann(E),
 			case Ann of
@@ -434,18 +510,60 @@ list(L,{PoiId,N},_,Path) ->
 					NodeId = Info#nodeinfo.id,
 					case NodeId of
 						PId ->
-							throw(New_path);
+							NewPathList = [New_path|PL],
+							{PId,MAcc+1,NewPathList};
 						_ ->
-							list_of_lists(erl_syntax:subtrees(E),PId,New_path),
-							{PId,MAcc+1}
+							NewPathLists = list_of_lists(erl_syntax:subtrees(E),PId,New_path,PL),
+							{PId,MAcc+1,NewPathLists}
 					end;
 				[] ->
-					list_of_lists(erl_syntax:subtrees(E),PId,New_path),
-					{PId,MAcc+1}
+					NewPathLists = list_of_lists(erl_syntax:subtrees(E),PId,New_path,PL),
+					{PId,MAcc+1,NewPathLists}
 			end
 		end,
-		{PoiId,1},
+		{PoiId,1,PathList},
 		L).
+
+%%%%%%%%%%%%%%%%%%%%%%%
+%%% GET PATH BACKUP %%%
+%%%%%%%%%%%%%%%%%%%%%%%
+% get_path(Root,PoiId) ->
+% 	try 
+% 		list_of_lists(erl_syntax:subtrees(Root),PoiId,[]),
+% 		unfound
+% 	catch
+% 		Path -> Path
+% 	end.
+% list_of_lists(L,PoiId,Path) ->
+% 	lists:foldl(
+% 		fun(E, {PId,NAcc}) ->
+% 			list(E,{PId,NAcc},1,Path),
+% 			{PId,NAcc + 1}
+% 		end,
+% 		{PoiId,1},
+% 		L).
+% list(L,{PoiId,N},_,Path) ->
+% 	lists:foldl(
+% 		fun(E, {PId,MAcc}) ->
+% 			New_path = [{erl_syntax:type(E),N,MAcc}|Path],
+% 			Ann = erl_syntax:get_ann(E),
+% 			case Ann of
+% 				[Info] ->
+% 					NodeId = Info#nodeinfo.id,
+% 					case NodeId of
+% 						PId ->
+% 							throw(New_path);
+% 						_ ->
+% 							list_of_lists(erl_syntax:subtrees(E),PId,New_path),
+% 							{PId,MAcc+1}
+% 					end;
+% 				[] ->
+% 					list_of_lists(erl_syntax:subtrees(E),PId,New_path),
+% 					{PId,MAcc+1}
+% 			end
+% 		end,
+% 		{PoiId,1},
+% 		L).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% ADD VARS TO VAR GEN %%%

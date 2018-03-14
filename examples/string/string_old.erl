@@ -221,8 +221,7 @@ substr2([_|String], S) -> substr2(String, S-1).
 %       Tokens :: [Token :: nonempty_string()].
 
 tokens(S, Seps) ->
-    Res = tokens1(S, Seps, []),
-    Res.
+  tokens1(S, Seps, []).
 
 tokens1([C|S], Seps, Toks) ->
     case member(C, Seps) of

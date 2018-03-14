@@ -6,7 +6,7 @@ main(N, M) ->
 	happy_list(N, M, []).
 
 happy_list(_, N, L) when length(L) =:= N -> lists:reverse(L);
-happy_list(X, N, L) -> 
+happy_list(X, N, L) ->
 	Happy = is_happy(X),
 	if Happy -> happy_list(X + 1, N, [X|L]);
 	true -> happy_list(X + 1, N, L) end.

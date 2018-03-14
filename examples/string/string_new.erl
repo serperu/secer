@@ -221,19 +221,17 @@ substr2([_|String], S) -> substr2(String, S-1).
 %       Tokens :: [Token :: nonempty_string()].
 
 tokens(S, Seps) ->
-  Res = 
-      case Seps of
-  	[] ->
-  	    case S of
-  		[] -> [];
-  		[_|_] -> [S]
-  	    end;
-  	[C] ->
-  	    tokens_single_1(reverse(S), C, []);
-  	[_|_] ->
-  	    tokens_multiple_1(reverse(S), Seps, [])
-      end,
-  Res.
+  case Seps of
+    [] ->
+        case S of
+      [] -> [];
+      [_|_] -> [S]
+        end;
+    [C] ->
+        tokens_single_1(reverse(S), C, []);
+    [_|_] ->
+        tokens_multiple_1(reverse(S), Seps, [])
+  end.
 
 tokens_single_1([Sep|S], Sep, Toks) ->
     tokens_single_1(S, Sep, Toks);

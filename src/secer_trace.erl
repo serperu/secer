@@ -11,6 +11,8 @@ loop(State) ->
 		error ->
 			io:format("---Error Execution---\n"),
 			ok;
+		reset ->
+			loop([]);
 		{add,Elem} ->
 			NewState = [Elem|State],
 			loop(NewState);

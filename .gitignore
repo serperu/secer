@@ -2,7 +2,7 @@
 .DS_Store
 secer_requirements.txt
 more_files/*
-ebin/*.beam
+*.beam
 Tama_typer/*
 results/*
 tmp/*
@@ -11,3 +11,14 @@ cuter/Makefile
 cuter/config.status
 cuter/config.log
 cuter/autom4te.cache/requests
+
+test_*.beam
+test_*.erl
+
+*.dump
+
+examples-edd/*
+output_commands
+output
+last
+examples_default/*
