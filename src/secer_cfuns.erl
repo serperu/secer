@@ -1,69 +1,196 @@
 -module(secer_cfuns).
--export([lower_than/0,greater_than/0,different/0,show/0,comp_perf/1,lists_comp_perf/1]).
+-export([cf_general/0,cf_general/1,cf_independent/0,cf_independent/1]).
+-export([equals/2,different/2,lower_than/2,greater_than/2]).
+-export([undo_id_transformation/4]).
 
-lower_than() ->
-	fun secer_cfuns:lower_than/3.
-lower_than(TO,TN,PoiRel) -> 
-	ZippedList = lists:zip(TO,TN),
-	lists:foldl(
-		fun
-			(_,{false,Msg,P1,P2}) ->
-				{false,Msg,P1,P2};
-			({{PO,VO},{PN,VN}},true) ->
-				case lists:member({PO,PN},PoiRel) of
-					true when VO > VN ->
-						true;
-					true when VO =< VN ->
-						{false,"Old Version Value < New Version Value",PO,PN};
-					flase ->
-						{false,"Unexpected trace order",PO,PN}
-				end
-		end,
-		true,
-		ZippedList).
+-export([show/0,comp_perf/1,lists_comp_perf/1]). % PENDING
+-record(
+	config,
+	{	
+		vef = fun({_,V}) -> V end, 
+		tecf = fun(VEF,TOE,TNE,CFUN) ->  	% Esto existe porque cuando haya additional information 
+					CFUN(VEF(TOE),VEF(TNE)) % habra que hacer algo más que llamar a la CFUN. 
+			   end,							% Habrá que mirar la AI para categorizar más errores
+		cfun = fun secer_cfuns:greater_than/2, %fun secer_cfuns:equals/2
+		
+		ubrm = dict:from_list([{default_error,fun secer_report_constructor:default_report/3}]) 
+		%FALTA añadir esta entrada al UBRM del usuario
+	}).
 
-greater_than() ->
-	fun secer_cfuns:greater_than/3.
-greater_than(TO,TN,PoiRel) -> 
-	ZippedList = lists:zip(TO,TN),
-	lists:foldl(
-		fun
-			(_,{false,Msg,P1,P2}) ->
-				{false,Msg,P1,P2};
-			({{PO,VO},{PN,VN}},true) ->
-				case lists:member({PO,PN},PoiRel) of
-					true when VO < VN ->
-						true;
-					true when VO >= VN ->
-						{false,"Old Version Value > New Version Value",PO,PN};
-					flase ->
-						{false,"Unexpected trace order",PO,PN}
-				end
-		end,
-		true,
-		ZippedList).
 
-different() ->
-	fun secer_cfuns:different/3.
-different(TO,TN,PoiRel) ->
-	ZippedList = lists:zip(TO,TN),
-	lists:foldl(
-		fun
-			(_,{false,Msg,P1,P2}) ->
-				{false,Msg,P1,P2};
-			({{PO,VO},{PN,VN}},true) ->
-				case lists:member({PO,PN},PoiRel) of
-					true when VO /= VN ->
-						true;
-					true when VO == VN ->
-						{false,"The two elements are equal",PO,PN};
-					flase ->
-						{false,"Unexpected trace order",PO,PN}
-				end
-		end,
-		true,
-		ZippedList).
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%% GENERAL COMPARISON FUNCTION %%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Estas funciones deben estar en cfuns porque permiten que el usuario pueda definir funciones 
+% que utilizen los valores de todas las trazas generadas y extraigan datos sobre el total.
+cf_general() ->
+	cf_general(#config{}).
 
+cf_general(#config{vef=VEF,tecf=TECF,cfun=CFUN,ubrm=UBRM}) ->
+	fun(TO,TN,PoiRel,InternalIdDict) ->
+		cf_general(TO,TN,VEF,TECF,CFUN,UBRM,PoiRel,InternalIdDict)
+	end.
+
+cf_general(TO, TN, VEF, TECF, CFUN, UBRM, PoiRel, InternalIdDict) ->  
+	cf_general(TO, TN, VEF, TECF, CFUN, UBRM, PoiRel, InternalIdDict, []).
+
+cf_general([], [], _, _, _, _, _, _, _) -> 
+	true;
+cf_general([TOE | _], [], _, _, _, _, _, _, His) -> 
+	{false,first_trace_longer,{TOE,undefined,lists:reverse(His)}};
+cf_general([], [TNE | _], _, _, _, _, _, _, His) -> 
+	{false,second_trace_longer,{undefined,TNE,lists:reverse(His)}};
+cf_general([TOE | TO], [TNE | TN], VEF, TECF, CFUN, UBRM, PoiRel, InternalIdDict, His) -> 
+	case related_pois(TOE,TNE,PoiRel) of
+		true ->
+			case TECF(VEF,TOE,TNE,CFUN) of
+				true ->
+					cf_general(TO, TN, VEF, TECF, UBRM, PoiRel, InternalIdDict, [{TOE ,TNE} | His]);
+				UBT -> {
+					false,
+					UBT,
+					fun() ->
+						my_fetch(UBT,UBRM,TOE,TNE,lists:reverse(His),InternalIdDict)
+					end
+					%{TOE,TNE,lists:reverse(His)}
+					} 
+			end;
+		UBT ->
+			{false,UBT,{TOE,TNE,lists:reverse(His)}}
+	end.
+
+related_pois({POI1,_},{POI2,_},PoiRel) ->
+	case lists:member({POI1,POI2},PoiRel) of
+		true -> true;
+		false -> no_poi_relation
+	end.
+
+my_fetch(UBT,UBRM,TOE,TNE,His,InternalIdDict) ->
+	% printer(TOE),
+	% printer(TNE),
+	% printer(His),
+	% printer(InternalIdDict),
+	{NewTOE,NewTNE,NewHis} = undo_id_transformation(TOE,TNE,His,InternalIdDict),
+	case dict:find(UBT,UBRM) of
+		{ok, ReportFunction} -> 
+			(ReportFunction)(NewTOE,NewTNE,NewHis);
+		error ->
+			(dict:fetch(default_error,UBRM))(NewTOE,NewTNE,NewHis)
+	end.
+
+undo_id_transformation({POld,VOld},{PNew,VNew},His,IdDict) ->
+	{
+		{dict:fetch(POld,IdDict),VOld},
+		{dict:fetch(PNew,IdDict),VNew},
+		lists:map(fun({{PO,VO},{PN,VN}}) ->
+					{{dict:fetch(PO,IdDict),VO},{dict:fetch(PN,IdDict),VN}}
+				  end,
+				  His)
+	}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%% INDEPENDENT MODE %%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+cf_independent() ->
+	cf_independent(#config{}).
+
+cf_independent(#config{vef=VEF,tecf=TECF,cfun=CFUN,ubrm=UBRM}) ->
+	fun(TO,TN,PoiRel,InternalIdDict) ->
+		cf_independent(TO,TN,VEF,TECF,CFUN,UBRM,PoiRel,InternalIdDict)
+	end.
+
+cf_independent(TO, TN, VEF, TECF, CFUN, UBRM, PoiRel, InternalIdDict) -> % CUIDADO: Esto devuelve una lista: [true | {false,UBT,{P1,P2,His}}]
+	TraceList = trace_division(TO,TN,PoiRel),
+	lists:map(fun({TOIndependent,TNIndependent}) ->
+				cf_general(TOIndependent, TNIndependent, VEF, TECF, CFUN, UBRM, PoiRel, InternalIdDict, [])
+			  end,
+			  TraceList).
+
+trace_division(T1,T2,PoiRels) ->
+	RelSets = rel_association(PoiRels,[]),
+	lists:map(fun(RS) ->
+				{Set1,Set2} = RS,
+				SetT1 = lists:foldr(fun({POI,V},RT) -> 
+								case lists:member(POI,Set1) of
+									true -> [{POI,V}|RT];
+									_ -> RT
+								end
+							end, 
+							[],
+							T1),
+				SetT2 = lists:foldr(fun({POI,V},RT) -> 
+								case lists:member(POI,Set2) of
+									true -> [{POI,V}|RT];
+									_ -> RT
+								end
+							end, 
+							[],
+							T2),
+				{SetT1,SetT2}
+			  end,
+			  RelSets).
+
+rel_association([],Sets) ->
+	lists:reverse(Sets);
+rel_association([{P1,P2}|T],Sets) ->
+	{NewT,RN} = lists:foldl(fun({E1,E2},{NT,L}) -> 
+								case (E1 == P1) of
+									true -> {lists:delete({E1,E2},NT),[E2|L]};
+									_ -> {NT,L}
+								end
+			 				end, 
+						 	{T,[]},
+						 	T),
+	RelNew = [P2 | RN],
+	{FinalT,RO} = lists:foldl(fun({E1,E2},{NT,L}) -> 
+								case (E2 == P2) of
+									true -> {lists:delete({E1,E2},NT),[E1|L]};
+									_ -> {NT,L}
+								end
+						 	  end, 
+						 	  {NewT,[]},
+						 	  NewT),
+	RelOld = [P1 | RO],
+	rel_association(FinalT, [{RelOld,RelNew} | Sets]).	
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%% FUNTIONS USED INSIDE TECF %%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+equals(Elem1,Elem2) ->
+	case  Elem1 == Elem2 of
+	   	true -> true;
+	   	false -> different_value
+	end.
+
+different(Elem1,Elem2) ->
+	case  Elem1 /= Elem2 of
+	   	true -> true;
+	   	false -> equal_value
+	end.
+
+lower_than(Elem1,Elem2) -> 
+	case Elem1 > Elem2 of
+		true->
+			true;
+		false when Elem1 == Elem2 ->
+			equal_value;
+		_ ->
+			greater_value
+	end.
+
+greater_than(Elem1,Elem2) -> 
+	case Elem1 < Elem2 of
+		true->
+			true;
+		false when Elem1 == Elem2 ->
+			equal_value;
+		_ ->
+			lower_value
+	end.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% TODO: REVIEW THE REST OF THE FUNCTIONS %%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 comp_perf(Thresh) -> 
 	fun(TO, TN, PoiRel) -> 
 		comp_perf(TO, TN, PoiRel, Thresh) 
@@ -99,7 +226,6 @@ show(TO,TN,_) ->
 	io:format("Trace new version:\n"),
 	FunShowTrace(TN),
 	true.     
-
 
 lists_comp_perf(Threshold) -> 
 	fun (TO, TN, PoiRel) -> 
@@ -145,37 +271,4 @@ lists_comp_perf_common(TO, TN, _, Threshold, FunWhenTrue) ->
     true,
     ZippedList).
 
-
-% ESTA FUNCION ACUMULA LAS TRAZAS DE POIS RELACIONADOS CON EL QUE DIO ERROR
-% relation_verifier(PO,TO,PN,TN,T1,T2,Msg,P1,P2,PoiRel) -> 
-% 	case {PO,PN} of
-% 		{P1,P2} ->
-% 			{false,T1++[TO],T2++[TN],Msg,PO,PN};
-% 		{P1,POI} ->
-% 			case lists:member({P1,POI},PoiRel) of
-% 				true ->
-% 					{false,T1++[TO],T2++[TN],Msg,PO,PN};
-% 				false ->
-% 					{false,T1++[TO],T2,Msg,PO,PN}
-% 			end;
-% 		{POI,P2} ->
-% 			case lists:member({POI,P2},PoiRel) of
-% 				true ->
-% 					{false,T1++[TO],T2++[TN],Msg,PO,PN};
-% 				false ->
-% 					{false,T1,T2++[TN],Msg,PO,PN}
-% 			end;
-% 		_ ->
-% 			{false,T1,T2,Msg,P1,P2}
-% 		% {POI1,POI2} ->	
-% 		% 	case {lists:member({P1,POI2},PoiRel),lists:member({POI1,P2},PoiRel)} of
-% 		% 		{true,true} ->
-% 		% 			{false,T1++TO,T2++TN,Msg,PO,PN};
-% 		% 		{false,true} ->
-% 		% 			{false,T1,T2++TN,Msg,PO,PN};
-% 		% 		{true,false} ->
-% 		% 			{false,T1++TO,T2,Msg,PO,PN};;
-% 		% 		_ ->
-% 		% 			{false,T1,T2,Msg,P1,P2}
-% 		% 	end
-% 	end.
+printer(Node) -> io:format("~p\n",[Node]).

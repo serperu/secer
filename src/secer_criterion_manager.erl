@@ -4,8 +4,8 @@
 
 -record(nodeinfo, {id,env,bound,free}).
 
-main(POIList,CompareFun) ->
-
+main(POIList,CFUN) ->
+	
 		%START
 		NewPoiList = poi_transformation(POIList),
 		{PoiListOld,PoiListNew} = divide_poi_list(NewPoiList),
@@ -32,13 +32,15 @@ main(POIList,CompareFun) ->
 
 		{ok,ASTOld} = epp:parse_file(FileOld,[],[]),
 
-		%ANOTAR TODOS LOS FORMS
+		%ANNOTATE ALL FORMS
 		{AnnASTOld,LastId} = lists:mapfoldl(fun annotate/2,1,ASTOld),
 
-		%LINE,TYPE,OC POIS
+		%LINE,TYPE,OC POIS 
+		%TODO: Cambiarlo por un lists:map()
 		LTOPoisOld = [{catch lists:foldl(fun find_explicit_pois/2,POI,AnnASTOld),POI} || POI <- ExplicitPOIsOld],
 
-		%LINE COL POIS
+		%LINE COL POIS 
+		%TODO: Cambiarlo por un lists:map()
 		LCPoisOld = [
 			begin 
 				{_,Program} = read_expression(POI),
@@ -91,17 +93,43 @@ main(POIList,CompareFun) ->
 		ListNew = LTOPoisNew ++ LCPoisNew,
 		OrderIdPoiListNew = lists:sort(fun({A,_}, {B,_}) -> A =< B end, ListNew),
 		FinalIdPoiDict = dict:merge(fun(_,_,V2) -> V2 end,IdPoiDict,dict:from_list(OrderIdPoiListNew)),
-		
+
 		get_replaced_AST(FileNew,OrderIdPoiListNew,AnnASTNew),
 
-		input_manager ! {set_rels,NewPoiList,FinalIdPoiDict},
-		case CompareFun of
+		% INSTANTIATE IM_SERVER REQUIRED INFO
+		IdPOIRels = poi_list_to_id_list(FinalIdPoiDict,NewPoiList),
+		input_manager ! {set_rels,IdPOIRels,POIList,FinalIdPoiDict},
+
+		case CFUN of
 			empty ->
 				ok;
 			_ ->
-				input_manager ! {set_fun,CompareFun}
+				input_manager ! {set_cfun,CFUN}
 		end.
+		
 
+%%%%%%%%%%%%%%%%%%%%
+%% POI TO ID LIST %%
+%%%%%%%%%%%%%%%%%%%%
+poi_list_to_id_list(IdPoiDict,Rels) ->
+	{IdRels,_} = lists:foldl(
+			fun({P1,P2},{IRels,Dict}) ->
+				IdP1 = get_id(P1,Dict),
+				IdP2 = get_id(P2,Dict),
+				{[{IdP1,IdP2}|IRels],Dict}
+			end,
+			{[],IdPoiDict},
+			Rels),
+	lists:reverse(IdRels).
+
+get_id(POI,Dict) ->
+	catch dict:map(
+			fun(K,V) -> 
+				case V of 
+					POI -> throw(K); 
+					_ -> V
+				end
+			end, Dict).
 %%%%%%%%%%%%%%%%%%%%%%
 %% LOAD DEPENDENCES %%
 %%%%%%%%%%%%%%%%%%%%%%

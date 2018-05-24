@@ -12,12 +12,16 @@ cuter/config.status
 cuter/config.log
 cuter/autom4te.cache/requests
 
+happy*.erl
+proper_secer/*
 test_*.beam
 test_*.erl
-
+test/*
+tmp_24_5_2018/*
 *.dump
 
 examples-edd/*
+examples_*
 output_commands
 output
 last

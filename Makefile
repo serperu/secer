@@ -24,3 +24,6 @@ clean:
 	@rm -Rf tmp
 	@rm -Rf ./cuter/ebin
 	@rm -Rf ./proper/ebin
+
+run:
+	./secer -pois "test_b1:rel1()" -funs "test_b1:funs()" -to 5
