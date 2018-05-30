@@ -17,6 +17,14 @@ run(PoisRels,ExecFun,Timeout,CompareFun) ->
 		register(input_manager,spawn(secer_im_server,init,[])),
 		register(input_gen,spawn(secer_input_gen,main,[PoisRels,ExecFun,Timeout,CompareFun])),
 
+		% START SLAVE NODES
+		slave:start(list_to_atom(net_adm:localhost()), 
+            							secer_trace_old, 
+            							"-setcookie secer_cookie"),
+		slave:start(list_to_atom(net_adm:localhost()), 
+            							secer_trace_new, 
+            							"-setcookie secer_cookie"),
+
 		receive
 			die -> 
 				exit(0);

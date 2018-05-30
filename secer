@@ -1,6 +1,6 @@
 #!/usr/bin/env escript
 %% -*- erlang -*-
-%%! -pa ebin cuter/ebin cuter/lib/proper/ebin
+%%! -sname secer_node -setcookie secer_cookie -pa ebin cuter/ebin cuter/lib/proper/ebin
 
 main([X]) when X == "-h" orelse X == "--help" ->
 	io:format("~s\n",[help_message()]);
@@ -11,7 +11,7 @@ main(["-pois", Pois, "-funs", FunList, "-to", Time, "-cfun", CFun]) ->
 	case lists:member($:,Pois) of
 		true ->
 			[Module | _] = string:tokens(Pois,":"),
-			compile:file(Module++".erl",[]),
+			compile:file(Module++".erl",[{outdir,"./tmp/"}]),
 			code:purge(list_to_atom(Module)),
 		 	code:load_abs(Module);
 		false ->
@@ -84,9 +84,9 @@ main(["-pois", Pois, "-funs", FunList, "-to", Time]) ->
 	case lists:member($:,Pois) of
 		true ->
 			[Module | _] = string:tokens(Pois,":"),
-			compile:file(Module++".erl",[]),
+			compile:file(Module++".erl",[{outdir,"./tmp/"}]),
 			code:purge(list_to_atom(Module)),
-		 	code:load_abs(Module);
+		 	code:load_abs("./tmp/"++Module);
 		false ->
 			ok
 	end,

@@ -91,10 +91,10 @@ loop(State) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% CATEGORIZATION %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 		{add,Input,Trace1,Trace2,Pid,Ref} -> 
-			% printer("Trace1"),
-			% printer(Trace1),
-			% printer("Trace2"),
-			% printer(Trace2),
+			%printer("Add"),
+			%printer({add,Input,Trace1,Trace2}),
+			%printer("id_relations"),
+			%printer(State#state.id_relations),
 			CompareRes = case State#state.cfun_changed of
 				true ->
 					secer_cfuns:undo_id_traces(Trace1,Trace2, State#state.id_poi_dic),
@@ -102,7 +102,6 @@ loop(State) ->
 				_ ->
 					(State#state.cfun)(Trace1, Trace2, State#state.id_relations,State#state.id_poi_dic)
 			end,		
-			
 			Pid ! {Ref,CompareRes},
 			NewState = case CompareRes of
 				true ->
@@ -122,11 +121,6 @@ loop(State) ->
 								Input,
 								{ErrorType,ErrorInfo},
 								State#state.different_trace),
-						% error_dict = 
-						% 	dict:append( %Este append penaliza lo suyo con respecto al store
-						% 		ErrorType,
-						% 		Input,
-						% 		State#state.error_dict),
 						trace_dict = 
 							dict:store(
 								{Trace1,Trace2},
@@ -143,7 +137,7 @@ loop(State) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% RESULT SENDING %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 		{get_results,Pid} ->
-			Pid ! {State#state.same_trace,State#state.different_trace,%State#state.error_dict,
+			Pid ! {State#state.same_trace,State#state.different_trace,
 				 	State#state.id_poi_dic,State#state.timeouted_trace};
 
 		Other ->
@@ -154,15 +148,14 @@ loop(State) ->
 					{"Title: Error option.~n", Other}
 				})
 	end.
-undo_id_traces([],[],IdDict,NewL1,NewL2) ->
-	{lists:reverse(NewL1),lists:reverse(NewL2)};
-undo_id_traces([{P1,V1}|L1],[],IdDict,NewL1,NewL2) ->
-	undo_id_traces(L1,[],IdDict,[{dict:fetch(P1,IdDict),V1} | NewL1],NewL2);
-undo_id_traces([],[{P2,V2}|L2],IdDict,NewL1,NewL2) ->
-	undo_id_traces([],L2,IdDict,NewL1,[{dict:fetch(P2,IdDict),V2} | NewL2]);
-undo_id_traces([{P1,V1}|L1],[{P2,V2}|L2],IdDict,NewL1,NewL2) ->
-	undo_id_traces(L1,L2,IdDict,[{dict:fetch(P1,IdDict),V1} | NewL1],[{dict:fetch(P2,IdDict),V2} | NewL2]).
-
+undo_id_traces([], [], IdDict, NewL1, NewL2) ->
+	{lists:reverse(NewL1), lists:reverse(NewL2)};
+undo_id_traces([{P1, V1, AI1} | L1], [], IdDict, NewL1, NewL2) ->
+	undo_id_traces(L1, [], IdDict, [{dict:fetch(P1, IdDict), V1, AI1} | NewL1], NewL2);
+undo_id_traces([], [{P2, V2, AI2} | L2], IdDict, NewL1, NewL2) ->
+	undo_id_traces([], L2, IdDict, NewL1, [{dict:fetch(P2, IdDict), V2, AI2} | NewL2]);
+undo_id_traces([{P1, V1, AI1} | L1], [{P2, V2, AI2} | L2], IdDict, NewL1, NewL2) ->
+	undo_id_traces(L1, L2, IdDict, [{dict:fetch(P1, IdDict), V1, AI1} | NewL1], [{dict:fetch(P2, IdDict), V2, AI2} | NewL2]).
 
 
 printer(Node) -> io:format("~p\n",[Node]).
