@@ -1,7 +1,7 @@
 -module(secer_cfuns).
 -export([cf_general/0, cf_general/1, cf_independent/0, cf_independent/1]).
 -export([equals/2, different/2, lower_than/2, greater_than/2]).
--export([undo_id_transformation/4]).
+%-export([undo_id_transformation/4]).
 
 %-export([show/0, comp_perf/1, lists_comp_perf/1]). % PENDING
 -record(

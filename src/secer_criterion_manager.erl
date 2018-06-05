@@ -1,6 +1,5 @@
 -module(secer_criterion_manager).
--export([%main/2, 
-		 parse_transform/2]). 
+-export([parse_transform/2]). 
 -define(TMP_PATH, "./tmp/").
 
 -record(nodeinfo, {id, env, bound, free}).
@@ -74,8 +73,10 @@ parse_transform(Forms, _Options) ->
 
 	cc_server ! {put,{id_poi_dict,dict:merge(fun(_, _, V2) -> V2 end, IdPoiDict, dict:from_list(OrderIdPoiList))}},
 
-	{_, FinalAST} = lists:mapfoldl(fun instrument_poi/2, AnnAST, OrderIdPoiList), 
-	[erl_syntax:revert(F) || F <- FinalAST].
+	{_, POIForms}= lists:mapfoldl(fun instrument_poi/2, AnnAST, OrderIdPoiList), 
+
+	%[printers(F) || F <- POIForms],
+	[erl_syntax:revert(F) || F <- POIForms].
 
 
 %%%%%%%%%%%%%%%%%%%%%
@@ -589,14 +590,14 @@ replace_match_pattern(Node, [{Type, N, M}|T]) ->
 	Children = erl_syntax:subtrees(Node), 
 	Child = lists:nth(N, Children), 
 
-	{[New_pattern], Var_sc_fv} = replace_pattern_with_free_variables(Child, [{Type, N, M}|T], dict:new()), 
+	{[NewPattern], VarScFv} = replace_pattern_with_free_variables(Child, [{Type, N, M}|T], dict:new()), 
 
-	Expr_pm = erl_syntax:match_expr(New_pattern, erl_syntax:match_expr_body(Node)), 
+	PmExpr = erl_syntax:match_expr(NewPattern, erl_syntax:match_expr_body(Node)), 
 	
-	%Var_sc_fv = erlang:get(slicing_criterion), 
-	Node_sc = obtain_sc(Node, [{Type, N, M}|T]), 
+	%VarScFv = erlang:get(slicing_criterion), 
+	NodeSc = obtain_sc(Node, [{Type, N, M}|T]), 
 
-	[PoiAnn] = erl_syntax:get_ann(Node_sc), 
+	[PoiAnn] = erl_syntax:get_ann(NodeSc), 
 	PoiId = PoiAnn#nodeinfo.id, 
 
 	Ann = erl_syntax:get_ann(Node), 
@@ -609,19 +610,21 @@ replace_match_pattern(Node, [{Type, N, M}|T]) ->
 				[]
 		end, 	
 
-	PoiName = erl_syntax:variable_name(Node_sc), 
+	PoiName = erl_syntax:variable_name(NodeSc), 
 
-	Expr_block = case lists:member(PoiName, Bounded_vars) of
+	BlockExpr = case lists:member(PoiName, Bounded_vars) of
 		true ->	
-			Expr_send_sc = erl_syntax:infix_expr(erl_syntax:atom("tracer"), erl_syntax:operator("!"), 
-							erl_syntax:tuple([erl_syntax:atom(add), erl_syntax:tuple([erl_syntax:integer(PoiId), Node_sc])])), 
-			erl_syntax:block_expr([Expr_pm, Expr_send_sc, New_pattern]);
+			SendSCExpr = build_send_expr(PoiId,NodeSc),
+							% erl_syntax:infix_expr(erl_syntax:atom("tracer"), erl_syntax:operator("!"), 
+							% erl_syntax:tuple([erl_syntax:atom(add), erl_syntax:integer(PoiId), NodeSc])), 
+			erl_syntax:block_expr([PmExpr, SendSCExpr, NewPattern]);
 		false ->
-			Expr_send_fv = erl_syntax:infix_expr(erl_syntax:atom("tracer"), erl_syntax:operator("!"), 
-							erl_syntax:tuple([erl_syntax:atom(add), erl_syntax:tuple([erl_syntax:integer(PoiId), Var_sc_fv])])), 
-			erl_syntax:block_expr([Expr_pm, Expr_send_fv, New_pattern])
+			SendFvExpr = build_send_expr(PoiId,VarScFv),
+							% erl_syntax:infix_expr(erl_syntax:atom("tracer"), erl_syntax:operator("!"), 
+							% erl_syntax:tuple([erl_syntax:atom(add), erl_syntax:integer(PoiId), VarScFv])), 
+			erl_syntax:block_expr([PmExpr, SendFvExpr, NewPattern])
 	end, 
-	erl_syntax:match_expr(erl_syntax:match_expr_pattern(Node), Expr_block).
+	erl_syntax:match_expr(erl_syntax:match_expr_pattern(Node), BlockExpr).
 
 %%%%%%%%%%%%%%%%%%%%%%%
 % LIST COMPREHENSIONS %
@@ -631,15 +634,15 @@ replace_lc(Node, [{generator, N1, M1}, {Type, N2, M2}|T]) ->
 	Child = lists:nth(N1, Children), 
 	Elem = lists:nth(M1, Child), 
 
-	New_generator = replace_generator(Elem, [{Type, N2, M2}|T]), 
+	NewGenerator = replace_generator(Elem, [{Type, N2, M2}|T]), 
 
 	Final_child = case N2 of 
 		1 -> 
-			New_child = replacenth(M1, New_generator, Child), 
-			New_generator_aux = add_neccessary_generator(Elem, [{Type, N2, M2}|T], erl_syntax:generator_pattern(New_generator)), 
-			add_at_nth(New_generator_aux, M1+1, 1, New_child, []);
+			New_child = replacenth(M1, NewGenerator, Child), 
+			NewGenerator_aux = add_neccessary_generator(Elem, [{Type, N2, M2}|T], erl_syntax:generator_pattern(NewGenerator)), 
+			add_at_nth(NewGenerator_aux, M1+1, 1, New_child, []);
 		_ -> 
-			replacenth(M1, New_generator, Child)
+			replacenth(M1, NewGenerator, Child)
 	end, 
 
 	New_children = replacenth(N1, Final_child, Children), 
@@ -652,24 +655,25 @@ replace_lc(Node, Path) ->
 replace_generator(Node, [{Type, N, M}|T]) ->
 	case N of
 		1 -> % GENERATOR PATTERN
-			[New_pattern] = replace_novar_pattern_with_free_variables([erl_syntax:generator_pattern(Node)], [{Type, N, M}|T]), 
-			erl_syntax:generator(New_pattern, erl_syntax:generator_body(Node));
+			[NewPattern] = replace_novar_pattern_with_free_variables([erl_syntax:generator_pattern(Node)], [{Type, N, M}|T]), 
+			erl_syntax:generator(NewPattern, erl_syntax:generator_body(Node));
 		_ ->
 			replace_expression(Node, [{Type, N, M}|T])
 	end.
 
-add_neccessary_generator(Node, [{Type, N, M}|T], New_pattern) ->
+add_neccessary_generator(Node, [{Type, N, M}|T], NewPattern) ->
 	Old_pattern = erl_syntax:generator_pattern(Node), 
 	case N of
 		1 ->
-			Node_sc = obtain_sc(Node, [{Type, N, M}|T]), 
-			[PoiAnn] = erl_syntax:get_ann(Node_sc), 
+			NodeSc = obtain_sc(Node, [{Type, N, M}|T]), 
+			[PoiAnn] = erl_syntax:get_ann(NodeSc), 
 			PoiId = PoiAnn#nodeinfo.id, 
 
-			Expr_send_sc = erl_syntax:infix_expr(erl_syntax:atom("tracer"), erl_syntax:operator("!"), 
-							erl_syntax:tuple([erl_syntax:atom(add), erl_syntax:tuple([erl_syntax:integer(PoiId), Node_sc])])), 
-			Expr_list_gen = erl_syntax:list([New_pattern]), 
-			Gen_Body = erl_syntax:block_expr([Expr_send_sc, Expr_list_gen]), 
+			SendSCExpr = build_send_expr(PoiId,NodeSc),
+							% erl_syntax:infix_expr(erl_syntax:atom("tracer"), erl_syntax:operator("!"), 
+							% erl_syntax:tuple([erl_syntax:atom(add), erl_syntax:integer(PoiId), NodeSc])), 
+			Expr_list_gen = erl_syntax:list([NewPattern]), 
+			Gen_Body = erl_syntax:block_expr([SendSCExpr, Expr_list_gen]), 
 
 			erl_syntax:generator(Old_pattern, Gen_Body);
 		 _ -> 
@@ -763,18 +767,19 @@ generate_new_child(Type, M, New_clause, Child) ->
 % O NO (IGNORA CORTOCIRCUITADOS)
 % <============>
 replace_guard(Node, Path, Clauses, Root_type) ->	
-	Node_sc = obtain_sc(Node, Path), 
-	[PoiAnn] = erl_syntax:get_ann(Node_sc), 
+	NodeSc = obtain_sc(Node, Path), 
+	[PoiAnn] = erl_syntax:get_ann(NodeSc), 
 	PoiId = PoiAnn#nodeinfo.id, 
 
-	Expr_send_sc = erl_syntax:infix_expr(erl_syntax:atom("tracer"), erl_syntax:operator("!"), 
-							erl_syntax:tuple([erl_syntax:atom(add), erl_syntax:tuple([erl_syntax:integer(PoiId), Node_sc])])), 
+	SendSCExpr = build_send_expr(PoiId,NodeSc),
+					% erl_syntax:infix_expr(erl_syntax:atom("tracer"), erl_syntax:operator("!"), 
+					% 		erl_syntax:tuple([erl_syntax:atom(add), erl_syntax:integer(PoiId), NodeSc])), 
 	
 	Pattern = erl_syntax:clause_patterns(Node), 
 	Expr_case = generate_case_expression(Pattern, Clauses, Root_type), 
 
-	Expr_block = erl_syntax:block_expr([Expr_send_sc, Expr_case]), 
-	erl_syntax:clause(erl_syntax:clause_patterns(Node), [], [Expr_block]).
+	BlockExpr = erl_syntax:block_expr([SendSCExpr, Expr_case]), 
+	erl_syntax:clause(erl_syntax:clause_patterns(Node), [], [BlockExpr]).
 
 %%%%%%%%%%%
 % CLAUSES %
@@ -784,12 +789,12 @@ replace_clause(Node, [{Type, N, M}|T], Clauses, Root_type) ->
 	Child = lists:nth(N, Children), 
 
 	%REPLACE PATTERN
-	{New_pattern, Var_sc_fv} = replace_pattern_with_free_variables(Child, [{Type, N, M}|T], dict:new()), 
+	{NewPattern, VarScFv} = replace_pattern_with_free_variables(Child, [{Type, N, M}|T], dict:new()), 
 
 	%CREATE BODY
-	%Var_sc_fv = erlang:get(slicing_criterion), 
-	Node_sc = obtain_sc(Node, [{Type, N, M}|T]), 
-	[PoiAnn] = erl_syntax:get_ann(Node_sc), 
+	%VarScFv = erlang:get(slicing_criterion), 
+	NodeSc = obtain_sc(Node, [{Type, N, M}|T]), 
+	[PoiAnn] = erl_syntax:get_ann(NodeSc), 
 	PoiId = PoiAnn#nodeinfo.id, 
 
 	Ann = erl_syntax:get_ann(Node), 
@@ -802,29 +807,32 @@ replace_clause(Node, [{Type, N, M}|T], Clauses, Root_type) ->
 				[]
 		end, 	
 
-	PoiName = erl_syntax:variable_name(Node_sc), 
+	PoiName = erl_syntax:variable_name(NodeSc), 
 
-	Expr_block = case lists:member(PoiName, Bounded_vars) of
+	BlockExpr = case lists:member(PoiName, Bounded_vars) of
 		true ->	
-			Expr_send_fv = erl_syntax:infix_expr(erl_syntax:atom("tracer"), erl_syntax:operator("!"), 
-							erl_syntax:tuple([erl_syntax:atom(add), erl_syntax:tuple([erl_syntax:integer(PoiId), Var_sc_fv])])), 
-			Expr_send_sc = erl_syntax:infix_expr(erl_syntax:atom("tracer"), erl_syntax:operator("!"), 
-							erl_syntax:tuple([erl_syntax:atom(add), erl_syntax:tuple([erl_syntax:integer(PoiId), Node_sc])])), 
-			Case_clause_equal = erl_syntax:clause([Node_sc], [], [Expr_send_fv]), 
-			Case_clause_else = erl_syntax:clause([erl_syntax:underscore()], [], [Expr_send_sc]), 
-			Expr_tracer_case = erl_syntax:case_expr(Var_sc_fv, [Case_clause_equal, Case_clause_else]), 
+			SendFvExpr = build_send_expr(PoiId,VarScFv),
+							% erl_syntax:infix_expr(erl_syntax:atom("tracer"), erl_syntax:operator("!"), 
+							% erl_syntax:tuple([erl_syntax:atom(add), erl_syntax:integer(PoiId), VarScFv])), 
+			SendSCExpr = build_send_expr(PoiId,NodeSc),
+							% erl_syntax:infix_expr(erl_syntax:atom("tracer"), erl_syntax:operator("!"), 
+							% erl_syntax:tuple([erl_syntax:atom(add), erl_syntax:integer(PoiId), NodeSc])), 
+			Case_clause_equal = erl_syntax:clause([NodeSc], [], [SendFvExpr]), 
+			Case_clause_else = erl_syntax:clause([erl_syntax:underscore()], [], [SendSCExpr]), 
+			Expr_tracer_case = erl_syntax:case_expr(VarScFv, [Case_clause_equal, Case_clause_else]), 
 			
-			Expr_clauses_case = generate_case_expression(New_pattern, Clauses, Root_type), 
+			Expr_clauses_case = generate_case_expression(NewPattern, Clauses, Root_type), 
 			erl_syntax:block_expr([Expr_tracer_case, Expr_clauses_case]);
 		_ ->
-			Expr_send_fv = erl_syntax:infix_expr(erl_syntax:atom("tracer"), erl_syntax:operator("!"), 
-							erl_syntax:tuple([erl_syntax:atom(add), erl_syntax:tuple([erl_syntax:integer(PoiId), Var_sc_fv])])), 
-			Expr_case = generate_case_expression(New_pattern, Clauses, Root_type), 
-			erl_syntax:block_expr([Expr_send_fv, Expr_case])
+			SendFvExpr = build_send_expr(PoiId,VarScFv),
+							% erl_syntax:infix_expr(erl_syntax:atom("tracer"), erl_syntax:operator("!"), 
+							% erl_syntax:tuple([erl_syntax:atom(add), erl_syntax:integer(PoiId), VarScFv])), 
+			Expr_case = generate_case_expression(NewPattern, Clauses, Root_type), 
+			erl_syntax:block_expr([SendFvExpr, Expr_case])
 	end, 
 
 	%CREATE CLAUSE
-	erl_syntax:clause(New_pattern, [], [Expr_block]).
+	erl_syntax:clause(NewPattern, [], [BlockExpr]).
 
 generate_case_expression(Pattern, Clauses, Type) ->
 	case Type of
@@ -842,17 +850,17 @@ generate_case_expression(Pattern, Clauses, Type) ->
 									end, 
 									Clauses), 
 			Are_special_patterns = Is_pattern_class_qualifier or Are_catch_patterns, 
-			{New_pattern, New_clauses} = case Are_special_patterns of
+			{NewPattern, New_clauses} = case Are_special_patterns of
 				true -> 
 					{generate_new_catch_pattern(Pattern), generate_new_catch_clauses(Clauses, [])};
 				false ->
 					{Pattern0, Clauses}
 			end, 
-			erl_syntax:case_expr(New_pattern, New_clauses);
+			erl_syntax:case_expr(NewPattern, New_clauses);
 			
 		_ -> 
-			[New_pattern] = Pattern, 
-			erl_syntax:case_expr(New_pattern, Clauses)
+			[NewPattern] = Pattern, 
+			erl_syntax:case_expr(NewPattern, Clauses)
 	end.
 
 generate_new_catch_pattern([Pattern]) ->
@@ -870,7 +878,7 @@ generate_new_catch_clauses([], New_clauses) ->
 	lists:reverse(New_clauses);
 generate_new_catch_clauses([Clause|Clauses], New_clauses) ->
 	[Pattern] = erl_syntax:clause_patterns(Clause), 
-	New_pattern = case erl_syntax:type(Pattern) of
+	NewPattern = case erl_syntax:type(Pattern) of
 		class_qualifier ->
 			Elem1 = erl_syntax:class_qualifier_argument(Pattern), 
 			Elem2 = erl_syntax:class_qualifier_body(Pattern), 
@@ -880,7 +888,7 @@ generate_new_catch_clauses([Clause|Clauses], New_clauses) ->
 			erl_syntax:tuple([Elem1, Pattern])
 	end, 
 
-	New_clause = erl_syntax:clause([New_pattern], erl_syntax:clause_guard(Clause), erl_syntax:clause_body(Clause)), 
+	New_clause = erl_syntax:clause([NewPattern], erl_syntax:clause_guard(Clause), erl_syntax:clause_body(Clause)), 
 	generate_new_catch_clauses(Clauses, [New_clause|New_clauses]).
 
 %%%%%%%%%%%%%%%
@@ -897,11 +905,13 @@ replace_expression(Node, [{_, N, M}|T]) ->
 
 	Replaced_expression = case T of
 		[] ->
-			PatternFV = gen_free_var(), 
-			Expr_pm = erl_syntax:match_expr(PatternFV, Elem), 
-			Expr_send = erl_syntax:infix_expr(erl_syntax:atom("tracer"), erl_syntax:operator("!"), 
-						 erl_syntax:tuple([erl_syntax:atom(add), erl_syntax:tuple([erl_syntax:integer(PoiId), PatternFV])])), 
-			erl_syntax:block_expr([Expr_pm, Expr_send, PatternFV]);
+			case erl_syntax:type(Elem) of
+				application ->
+					replace_call_expression(Elem,PoiId);
+				_ ->
+					replace_normal_expression(Elem,PoiId)
+			end;
+			
 		_ ->
 			replace_expression(Elem, T)
 	end, 
@@ -911,6 +921,156 @@ replace_expression(Node, [{_, N, M}|T]) ->
 	replace_node_with_anns(Node, New_children).
 	%erl_syntax:make_tree(erl_syntax:type(Node), New_children).
 
+replace_normal_expression(Elem, PoiId) ->
+	PatternFV = gen_free_var(), 
+	PmExpr = erl_syntax:match_expr(PatternFV, Elem), 
+	Expr_send = build_send_expr(PoiId,PatternFV),
+				% erl_syntax:infix_expr(erl_syntax:atom("tracer"), erl_syntax:operator("!"), 
+				%  erl_syntax:tuple([erl_syntax:atom(add), erl_syntax:integer(PoiId), PatternFV])), 
+	erl_syntax:block_expr([PmExpr, Expr_send, PatternFV]).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% CALL SPECIAL INSTRUMENTATION %%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+replace_call_expression(Elem,PoiId) ->
+	FVRef = gen_free_var(),
+	FVCallee = gen_free_var(),
+	PList = erl_syntax:application_arguments(Elem),
+
+	Operator = erl_syntax:application_operator(Elem),
+
+	CalleeFun = case erl_syntax:type(Operator) of
+		atom -> 
+			erl_syntax:implicit_fun(
+				Operator,
+				erl_syntax:integer(length(PList)));
+		module_qualifier ->
+			erl_syntax:implicit_fun(
+				erl_syntax:module_qualifier_argument(Operator),
+				erl_syntax:module_qualifier_body(Operator),
+				erl_syntax:integer(length(PList)));
+		_ ->
+			erl_syntax:application_operator(Elem)
+	end,
+
+	FVCall = gen_free_var(),
+	RefCalle = [	% Ref = make_ref()
+					erl_syntax:match_expr( 
+					FVRef,
+					erl_syntax:application(
+						erl_syntax:atom(make_ref),
+						[])),
+					% Callee
+					erl_syntax:match_expr(
+						FVCallee,
+						CalleeFun),
+					erl_syntax:infix_expr(
+						erl_syntax:atom(tracer), 
+						erl_syntax:operator("!"), 
+						erl_syntax:tuple([
+							erl_syntax:atom(add_i), 
+							erl_syntax:integer(PoiId), 
+							FVRef, 
+							FVCallee]))
+				],
+	% Parameters
+	{ParamFVList,Params} = get_param_instrumentation(PList, PoiId, FVRef),
+
+	% Whole call
+	FVCallMatch = erl_syntax:match_expr(
+					FVCall, 
+					erl_syntax:application(
+						FVCallee, 
+						lists:reverse(ParamFVList))),
+
+	CallSend = build_call_send_expr(PoiId, FVCall, FVRef),
+	% erl_syntax:infix_expr(erl_syntax:atom(tracer), erl_syntax:operator("!"), 
+	% 							erl_syntax:tuple([
+	% 									erl_syntax:atom(add_c), 
+	% 									erl_syntax:integer(PoiId), 
+	% 									FVRef, 
+	% 									FVCall])),
+
+	erl_syntax:block_expr(RefCalle ++ Params ++ [FVCallMatch,CallSend,FVCall]).
+
+get_param_instrumentation(PList, PoiId, FVRef) ->
+	lists:foldl(
+		fun(PElem, {L,PAstL}) -> 
+			FVParam = gen_free_var(),
+			ParamExprs = [
+				erl_syntax:match_expr(
+					FVParam,
+					PElem),
+				erl_syntax:infix_expr(erl_syntax:atom(tracer), erl_syntax:operator("!"), 
+								erl_syntax:tuple([
+										erl_syntax:atom(add_i), 
+										erl_syntax:integer(PoiId), 
+										FVRef, 
+										FVParam]))],
+			{[FVParam | L], PAstL ++ ParamExprs}
+		end, 
+		{[],[]},
+		PList).
+
+%%%%%%%%%%%%%%%
+%% SEND EXPR %%
+%%%%%%%%%%%%%%%
+build_send_expr(PoiId,SentVar) ->
+	build_send_with_st(PoiId,SentVar).
+	%build_send_without_st(PoiId,SentVar).
+
+build_send_with_st(PoiId,SentVar) ->
+	TryExpression = build_stack_trace(),
+	erl_syntax:infix_expr(erl_syntax:atom("tracer"), erl_syntax:operator("!"), 
+				 erl_syntax:tuple([erl_syntax:atom(add), erl_syntax:integer(PoiId), SentVar, TryExpression])).
+
+build_send_without_st(PoiId,SentVar) ->
+	erl_syntax:infix_expr(erl_syntax:atom("tracer"), erl_syntax:operator("!"), 
+				 erl_syntax:tuple([erl_syntax:atom(add), erl_syntax:integer(PoiId), SentVar])).
+
+build_call_send_expr(PoiId,SentVar,Ref) ->
+	build_call_send_with_st(PoiId,SentVar,Ref).
+
+build_call_send_with_st(PoiId,SentVar,Ref) ->
+	TryExpression = build_stack_trace(),
+	erl_syntax:infix_expr(erl_syntax:atom(tracer), erl_syntax:operator("!"), 
+								erl_syntax:tuple([
+										erl_syntax:atom(add_c), 
+										erl_syntax:integer(PoiId), 
+										Ref, 
+										SentVar,
+										TryExpression])).
+
+build_call_send_without_st(PoiId,SentVar,Ref) ->
+	erl_syntax:infix_expr(erl_syntax:atom(tracer), erl_syntax:operator("!"), 
+								erl_syntax:tuple([
+										erl_syntax:atom(add_c), 
+										erl_syntax:integer(PoiId), 
+										Ref, 
+										SentVar])).
+
+build_stack_trace() ->
+	erl_syntax:try_expr(
+		[
+			erl_syntax:application(
+				erl_syntax:module_qualifier(
+						erl_syntax:atom(erlang),
+						erl_syntax:atom(throw)),
+				[erl_syntax:integer(42)])
+		],
+		[
+			erl_syntax:clause(
+				[erl_syntax:integer(42)], 
+				none, 
+				[
+					erl_syntax:application(
+						erl_syntax:module_qualifier(
+								erl_syntax:atom(erlang),
+								erl_syntax:atom(get_stacktrace)),
+						[])
+				])
+		]).
+
 %%%%%%%%%%
 % COMMON %
 %%%%%%%%%%
@@ -919,16 +1079,16 @@ replace_pattern_with_free_variables(Pattern, [{_, _, M}], VarDic) -> % DEVUELVE 
 	Sc_fv = gen_and_put_scFreeVar(), 
 	{replacenth(M, Sc_fv, Modified_pattern), Sc_fv};
 replace_pattern_with_free_variables(Pattern, [{_Type1, _N1, M1}, {_Type, N, M2}|T], VarDic) ->
-	{New_pattern, NewDic} = replace_after_position(Pattern, M1, VarDic), 
+	{NewPattern, NewDic} = replace_after_position(Pattern, M1, VarDic), 
 	
-	Sc_elem = lists:nth(M1, New_pattern), 
+	Sc_elem = lists:nth(M1, NewPattern), 
 	Children = erl_syntax:subtrees(Sc_elem), 
 	Child = lists:nth(N, Children), 
 
 	{New_child, Sc_fv} = replace_pattern_with_free_variables(Child, [{_Type, N, M2}|T], NewDic), 
 	
 	Final_children = replacenth(N, New_child, Children), 
-	{replacenth(M1, erl_syntax:make_tree(erl_syntax:type(Sc_elem), Final_children), New_pattern), Sc_fv}.
+	{replacenth(M1, erl_syntax:make_tree(erl_syntax:type(Sc_elem), Final_children), NewPattern), Sc_fv}.
 
 gen_and_put_scFreeVar() ->
 	Ref = make_ref(), 
@@ -956,16 +1116,16 @@ replace_novar_pattern_with_free_variables(Pattern, [{_, _, M}]) -> % DEVUELVE EN
 	NewSC = gen_and_put_scFreeVar(), 
 	replacenth(M, NewSC, New_Pattern);
 replace_novar_pattern_with_free_variables(Pattern, [{_, _, M1}, {_Type, N, M2}|T]) ->
-	New_pattern = replace_all_after_position(Pattern, M1), 
+	NewPattern = replace_all_after_position(Pattern, M1), 
 
-	Sc_elem = lists:nth(M1, New_pattern), 
+	Sc_elem = lists:nth(M1, NewPattern), 
 	Children = erl_syntax:subtrees(Sc_elem), 
 	Child = lists:nth(N, Children), 
 
 	New_child = replace_novar_pattern_with_free_variables(Child, [{_Type, N, M2}|T]), 
 
 	Final_children = replacenth(N, New_child, Children), 
-	replacenth(M1, erl_syntax:make_tree(erl_syntax:type(Sc_elem), Final_children), New_pattern). % CAMBIAR TAMBIEN EN EL OTRO REPLACE PATTERN
+	replacenth(M1, erl_syntax:make_tree(erl_syntax:type(Sc_elem), Final_children), NewPattern). % CAMBIAR TAMBIEN EN EL OTRO REPLACE PATTERN
 
 replace_all_after_position(List, Index) ->
 	replace_all_after_position(List, Index, [], 1).
@@ -1012,7 +1172,7 @@ replace_after_position([], _, New_list, _, VarDic) ->
 replace_after_position([H|T], Index, New_list, Pos, Dic) -> %REVISAR QUE HACER CUANDO POS = INDEX, NO CAMBIAR YA QUE SE TRATA A POSTERIORI
 	case Pos > Index of
 		true ->
-			replace_after_position(T, Index, [gen_free_var()|New_list], Pos+1, Dic); %REPLACE WITH THE FREE VAR GENERATOR CALL
+			replace_after_position(T, Index, [gen_free_var()|New_list], Pos+1, Dic); 
 		false ->
 			{NewH, NewDic} = erl_syntax_lib:mapfold(
 				fun(Node, Dict) ->
@@ -1206,3 +1366,9 @@ printers(Node) -> io:format("~s\n", [erl_prettypr:format(Node)]).
 % 			_ -> % Si no es de la librería secer_cfuns hacer esto. En caso contrario no hacerlo
 % 				input_manager ! {set_cfun, CFUN}
 % 		end.
+
+
+
+
+
+
