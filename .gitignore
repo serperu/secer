@@ -1,5 +1,6 @@
 
 .DS_Store
+proper
 secer_requirements.txt
 more_files/*
 *.beam
@@ -12,17 +13,27 @@ cuter/config.status
 cuter/config.log
 cuter/autom4te.cache/requests
 
-happy*.erl
+happy*
 proper_secer/*
-test_*.beam
-test_*.erl
+test_*
+test_*
 test/*
 tmp_24_5_2018/*
 *.dump
 
 examples-edd/*
 examples_*
-output_commands
-output
+outpu*
 last
 examples_default/*
+examples-edd*
+repea*
+string*
+
+test_happy.erl
+config/*
+error.log
+tests/*
+happy_new.erl
+latex*
+README*
