@@ -26,4 +26,4 @@ happy(X, Top, XS) ->
 
 -spec main(pos_integer(),pos_integer()) -> [pos_integer()].
 main(N, M) -> 
-	happy(N, M, []).
+	happy(N,M,[]).
