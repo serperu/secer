@@ -7,8 +7,7 @@
 -define(INPUT_LIMIT, 10000).
 -define(CUTER_TIMEOUT, 20).
 
-main(PoisRels, ExecFun, Time, CompareFun) ->
-
+main(PoisRels, ExecFun, Time, CConf) ->
 	try 
 		register(cuterIn, spawn(secer_trace, init, [])), 
 		register(var_gen, spawn(secer_fv_server, init, [])), 
@@ -46,7 +45,7 @@ main(PoisRels, ExecFun, Time, CompareFun) ->
 		{FunName, Arity} = divide_function(ExecFun), 
 		case Arity of
 			0 ->
-				{BinaryOld, BinaryNew} = instrument_code(PoisRels, FileOld, FileNew, CompareFun), 
+				{BinaryOld, BinaryNew} = instrument_code(PoisRels, FileOld, FileNew, CConf), 
 				cc_server ! die, 
 
 				NodeOld = node_instantiation("secer_trace_old", FileOld, BinaryOld, FunName, Time), 
@@ -65,8 +64,7 @@ main(PoisRels, ExecFun, Time, CompareFun) ->
 
 				% PART 2
 %%%%%%%			
-
-				{BinaryOld, BinaryNew} = instrument_code(PoisRels, FileOld, FileNew, CompareFun), 
+				{BinaryOld, BinaryNew} = instrument_code(PoisRels, FileOld, FileNew, CConf), 
 				cc_server ! die, 
 
 				NodeOld = node_instantiation("secer_trace_old", FileOld, BinaryOld, FunName, 2*TimeOut), 
@@ -601,14 +599,14 @@ remove_duplicated(List) ->
 %%%%%%%%%%%% PART 2: INSTRUMENT THE CODE AND RANDOM GENERATION WITH PROPER  %%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-instrument_code(PoisRels, FileOld, FileNew, CompareFun) ->
+instrument_code(PoisRels, FileOld, FileNew, CConf) ->
 	NewPoiList = poi_transformation(PoisRels), 
 	{PoiListOld, PoiListNew} = divide_poi_list(NewPoiList), 
 	try		
 		cc_server ! {put, {last_id, 1}}, 
 		BinaryOld = instrument_version(FileOld, PoiListOld), 
 		BinaryNew = instrument_version(FileNew, PoiListNew), 
-		instantiate_server(CompareFun, NewPoiList), 
+		instantiate_server(CConf, NewPoiList), 
 		{BinaryOld, BinaryNew}
 	catch 
 		E:R ->
@@ -633,7 +631,7 @@ instrument_version(File, PoiList) ->
 %%%%%% INSTANTIATE SERVER PARAMETERS %%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-instantiate_server(CFUN, PoiRels) ->
+instantiate_server({CFUN, Conf}, PoiRels) ->
 	% INSTANTIATE IM_SERVER REQUIRED INFO
 	Ref = make_ref(), 
 	cc_server ! {get, id_poi_dict, Ref, self()}, 
@@ -647,8 +645,9 @@ instantiate_server(CFUN, PoiRels) ->
 
 	case CFUN of
 		empty ->
+			input_manager ! {set_cfun_config, Conf},
 			ok;
-		_ -> % Si no es de la librería secer_cfuns hacer esto. En caso contrario no hacerlo
+		_ -> % Si no es de la librería secer_api hacer esto. En caso contrario no hacerlo
 			input_manager ! {set_cfun, CFUN}
 	end.
 

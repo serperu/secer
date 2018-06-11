@@ -1363,7 +1363,7 @@ printers(Node) -> io:format("~s\n", [erl_prettypr:format(Node)]).
 % 		case CFUN of
 % 			empty ->
 % 				ok;
-% 			_ -> % Si no es de la librería secer_cfuns hacer esto. En caso contrario no hacerlo
+% 			_ -> % Si no es de la librería secer_api hacer esto. En caso contrario no hacerlo
 % 				input_manager ! {set_cfun, CFUN}
 % 		end.
 
