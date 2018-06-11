@@ -7,11 +7,7 @@ more_files/*
 Tama_typer/*
 results/*
 tmp/*
-cuter/ebin/*
-cuter/Makefile
-cuter/config.status
-cuter/config.log
-cuter/autom4te.cache/requests
+cuter/*
 
 happy*
 proper_secer/*
