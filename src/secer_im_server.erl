@@ -119,6 +119,13 @@ loop(State) ->
 								State#state.same_trace)
 					};
 				{false, ErrorType, ErrorInfo} ->
+					% case ErrorType of
+					% 	second_trace_longer ->
+					% 		printer({Trace1,Trace2}),
+					% 		io:get_line("STOP");
+					% 	_ ->
+					% 		ok
+					% end,
 					State#state
 					{
 						different_trace = 
@@ -133,7 +140,7 @@ loop(State) ->
 								State#state.trace_dict)
 					};
 				X ->
-					io:formaT("~p\n", [X]), 
+					io:format("~p\n", [X]), 
 					io:format("~s\n", ["Unexpected error"]), 
 					exit("Unexpected message")
 			end, 

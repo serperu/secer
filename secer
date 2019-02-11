@@ -188,7 +188,7 @@ main(["-pois", Pois, "-funs", FunList, "-to", Time]) ->
 		_ -> 
 			%io:format("~p\n", [InputFuns]), 
 			[begin
-				secer:run(PoisRels, string:strip(IFun, both), Timeout, empty)
+				secer:run(PoisRels, string:strip(IFun, both), Timeout, {empty, empty})
 			 end
 			|| IFun<- InputFuns]
 			%[secer:run(PoisRels, IFun, Timeout, independent, empty)|| IFun<- InputFuns]

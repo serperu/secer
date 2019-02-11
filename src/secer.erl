@@ -14,16 +14,16 @@ run(PoisRels,ExecFun,Timeout,CompareFun) ->
 		        already_started
 		end,
 
-		register(input_manager,spawn(secer_im_server,init,[])),
-		register(input_gen,spawn(secer_input_gen,main,[PoisRels,ExecFun,Timeout,CompareFun])),
-
 		% START SLAVE NODES
-		slave:start(list_to_atom(net_adm:localhost()), 
+		OldNode = slave:start(list_to_atom(net_adm:localhost()), 
             							secer_trace_old, 
             							"-setcookie secer_cookie"),
-		slave:start(list_to_atom(net_adm:localhost()), 
+		NewNode = slave:start(list_to_atom(net_adm:localhost()), 
             							secer_trace_new, 
             							"-setcookie secer_cookie"),
+
+		register(input_manager,spawn(secer_im_server,init,[])),
+		register(input_gen,spawn(secer_input_gen,main,[PoisRels,ExecFun,Timeout,CompareFun])),
 
 		receive
 			die -> 
@@ -41,7 +41,9 @@ run(PoisRels,ExecFun,Timeout,CompareFun) ->
 			_ ->
 				printer(error),
 				error
-		end
+		end,
+		slave:stop(OldNode),
+		slave:stop(NewNode)
 	catch 
 		E:R -> 
 			errorCatch

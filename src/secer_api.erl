@@ -1,5 +1,6 @@
 -module(secer_api).
--export([nuai_config/0, nuai_t_config/1, nuai_r_config/1, nuai_tr_config/2, uai_config/0, uai_config/1, uai_config/2]).
+-export([nuai_config/0, nuai_t_config/1, nuai_r_config/0, nuai_r_config/1, 
+		 nuai_tr_config/2, uai_config/0, uai_config/1, uai_config/2]).
 -export([build_config/1, build_config/2, build_tecf/2]).
 -export([cf_general/0, cf_general/1, cf_independent/0, cf_independent/1]).
 -export([build_vef/0, build_vef/1, build_ubrm/0, build_ubrm/1]).
@@ -34,6 +35,9 @@ nuai_config() ->
 nuai_t_config(TECF) ->
 	build_config(TECF).
 
+nuai_r_config() ->
+	build_config([]).
+
 nuai_r_config(UBRM) ->
 	build_config(UBRM).	
 
@@ -44,7 +48,7 @@ nuai_tr_config(TECF,UBRM) ->
 %% UAI MODES %%
 %%%%%%%%%%%%%%%
 uai_config() ->
-	build_config(build_tecf(vef_full())).
+	build_config(build_tecf(vef_full(),[])).
 
 uai_config(Conf) ->
 	build_config(Conf).
@@ -318,7 +322,8 @@ build_ubrm() ->
 	build_ubrm([]).
 
 build_ubrm(L) ->
-	NewL = [{default_error, fun default_report/3} | L],
+	NewL = [{default_error, fun default_report/3}, {length_error, fun length_report/3}, 
+			{no_poi_relation, fun no_poi_report/3} | L],
 	{Funs, Lists} = lists:foldr( 
 					fun(E, {Fun, List}) ->
 						{_Cod, Msg} = E,
@@ -342,27 +347,107 @@ build_ubrm(L) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%
 %% BUILD REPORT STRINGS %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%
+% build_print_functionv0(ShownFlags) ->
+% 	fun({POE, VOE, AIOE}, {PNE, VNE, AINE}, His) ->
+% 		{OldShownInfo, NewShownInfo} = 
+% 			lists:foldr(
+% 				 fun(val, {OldInfo, NewInfo}) -> 
+% 				 		{OldValues, NewValues} = get_poi_history_info(POE, PNE, His),
+% 						CompleteOldValues = lists:reverse([VOE | OldValues]), 
+% 						CompleteNewValues = lists:reverse([VNE | NewValues]),
+% 						{[value_string(CompleteOldValues) | OldInfo],[value_string(CompleteNewValues) | NewInfo]}; 
+% 				    (st, {OldInfo, NewInfo}) -> {[stack_string(AIOE) | OldInfo], [stack_string(AINE) | NewInfo]};
+% 				    (ca, {OldInfo, NewInfo}) -> {[call_string(AIOE) | OldInfo], [call_string(AINE) | NewInfo]};
+% 				    (callee, {OldInfo, NewInfo}) -> {[callee_string(AIOE) | OldInfo], [callee_string(AINE) | NewInfo]};
+% 				    (args, {OldInfo, NewInfo}) -> {[args_string(AIOE) | OldInfo], [args_string(AINE) | NewInfo]};
+% 				    (_, Acc) -> Acc
+% 				 end,
+% 				 {[],[]},
+% 	  			 ShownFlags),
+% 		poi_string(POE) ++ lists:flatten(OldShownInfo) ++ "\n" ++
+% 		poi_string(PNE) ++ lists:flatten(NewShownInfo)
+% 	end.
+
 build_print_function(ShownFlags) ->
 	fun({POE, VOE, AIOE}, {PNE, VNE, AINE}, His) ->
-		{OldShownInfo, NewShownInfo} = 
+			{OldShownInfo, NewShownInfo} = 
+				lists:foldr(
+					 fun(val, {OldInfo, NewInfo}) -> 
+					 		{OldValues, NewValues} = get_poi_history_info(POE, PNE, His),
+							CompleteOldValues = lists:reverse([VOE | OldValues]), 
+							CompleteNewValues = lists:reverse([VNE | NewValues]),
+							{[value_string(CompleteOldValues) | OldInfo],[value_string(CompleteNewValues) | NewInfo]}; 
+					    (st, {OldInfo, NewInfo}) -> {[stack_string(AIOE) | OldInfo], [stack_string(AINE) | NewInfo]};
+					    (ca, {OldInfo, NewInfo}) -> {[call_string(AIOE) | OldInfo], [call_string(AINE) | NewInfo]};
+					    (callee, {OldInfo, NewInfo}) -> {[callee_string(AIOE) | OldInfo], [callee_string(AINE) | NewInfo]};
+					    (args, {OldInfo, NewInfo}) -> {[args_string(AIOE) | OldInfo], [args_string(AINE) | NewInfo]};
+					    (_, Acc) -> Acc
+					 end,
+					 {[],[]},
+		  			 ShownFlags),
+			poi_string(POE) ++ lists:flatten(OldShownInfo) ++ "\n" ++
+			poi_string(PNE) ++ lists:flatten(NewShownInfo);
+		(POs, {PNE, VNE, AINE}, His) ->
+			{OldShownInfo, NewShownInfo} = 
 			lists:foldr(
 				 fun(val, {OldInfo, NewInfo}) -> 
-				 		{OldValues, NewValues} = get_poi_history_info(POE, PNE, His),
-						CompleteOldValues = lists:reverse([VOE | OldValues]), 
+				 		{OldValues, NewValues} = get_poi_history_info(POs, PNE, His),
+				 		CompleteOldValues = lists:reverse(OldValues), 
 						CompleteNewValues = lists:reverse([VNE | NewValues]),
 						{[value_string(CompleteOldValues) | OldInfo],[value_string(CompleteNewValues) | NewInfo]}; 
-				    (st, {OldInfo, NewInfo}) -> {[stack_string(AIOE) | OldInfo], [stack_string(AINE) | NewInfo]};
-				    (ca, {OldInfo, NewInfo}) -> {[call_string(AIOE) | OldInfo], [call_string(AINE) | NewInfo]};
-				    (callee, {OldInfo, NewInfo}) -> {[callee_string(AIOE) | OldInfo], [callee_string(AINE) | NewInfo]};
-				    (args, {OldInfo, NewInfo}) -> {[args_string(AIOE) | OldInfo], [args_string(AINE) | NewInfo]};
+				    (st, {OldInfo, NewInfo}) -> {[[] | OldInfo], [stack_string(AINE) | NewInfo]};
+				    (ca, {OldInfo, NewInfo}) -> {[[] | OldInfo], [call_string(AINE) | NewInfo]};
+				    (callee, {OldInfo, NewInfo}) -> {[[] | OldInfo], [callee_string(AINE) | NewInfo]};
+				    (args, {OldInfo, NewInfo}) -> {[[] | OldInfo], [args_string(AINE) | NewInfo]};
 				    (_, Acc) -> Acc
 				 end,
 				 {[],[]},
 	  			 ShownFlags),
-		poi_string(POE) ++ lists:flatten(OldShownInfo) ++ "\n" ++
-		poi_string(PNE) ++ lists:flatten(NewShownInfo)
+			poi_string(POs) ++ lists:flatten(OldShownInfo) ++ "\n" ++
+			poi_string(PNE) ++ lists:flatten(NewShownInfo);
+		({POE, VOE, AIOE}, PNs, His) ->
+			{OldShownInfo, NewShownInfo} = 
+				lists:foldr(
+					 fun(val, {OldInfo, NewInfo}) -> 
+					 		{OldValues, NewValues} = get_poi_history_info(POE, PNs, His),
+							CompleteOldValues = lists:reverse([VOE | OldValues]), 
+							CompleteNewValues = lists:reverse(NewValues),
+							{[value_string(CompleteOldValues) | OldInfo],[value_string(CompleteNewValues) | NewInfo]}; 
+					    (st, {OldInfo, NewInfo}) -> {[stack_string(AIOE) | OldInfo], [[] | NewInfo]};
+					    (ca, {OldInfo, NewInfo}) -> {[call_string(AIOE) | OldInfo], [[] | NewInfo]};
+					    (callee, {OldInfo, NewInfo}) -> {[callee_string(AIOE) | OldInfo], [[] | NewInfo]};
+					    (args, {OldInfo, NewInfo}) -> {[args_string(AIOE) | OldInfo], [[] | NewInfo]};
+					    (_, Acc) -> Acc
+					 end,
+					 {[],[]},
+		  			 ShownFlags),
+			poi_string(POE) ++ lists:flatten(OldShownInfo) ++ "\n" ++
+			poi_string(PNs) ++ lists:flatten(NewShownInfo)
 	end.
 
+
+get_poi_history_info(POE, PNList, His) when is_list(PNList)->
+	lists:foldl(fun({{OP, VO, _}, {NP, VN, _}}, {OValues, NValues}) ->
+		case OP == POE andalso lists:member(NP,PNList) of
+			true -> 
+				{[VO | OValues], [VN | NValues]};
+			false -> 
+				{OValues, NValues}
+		end
+	end, 
+	{[], []}, 
+	His);
+get_poi_history_info(POList, PNE, His) when is_list(POList) ->
+	lists:foldl(fun({{OP, VO, _}, {NP, VN, _}}, {OValues, NValues}) ->
+		case NP == PNE andalso lists:member(OP,POList) of
+			true -> 
+				{[VO | OValues], [VN | NValues]};
+			false -> 
+				{OValues, NValues}
+		end
+	end, 
+	{[], []}, 
+	His);
 get_poi_history_info(POE, PNE, His) ->
 	lists:foldl(fun({{OP, VO, _}, {NP, VN, _}}, {OValues, NValues}) ->
 		case OP == POE andalso NP == PNE of
@@ -375,45 +460,104 @@ get_poi_history_info(POE, PNE, His) ->
 	{[], []}, 
 	His).
 
+poi_string(POI) when is_list(POI) ->
+	POIList = [poi_translation(P) || P <- POI],
+	case length(POIList) of
+		1 ->
+			[P] = POIList, 
+			format("POI: ~p\n",[P]);
+		_ ->
+			format("POIs: ~p\n",[POIList])
+	end;
 poi_string(POI) ->
-	format("POI: (~p)\n",[poi_translation(POI)]).
+	format("POI: ~p\n",[poi_translation(POI)]).
+
 value_string(ValList) ->
-	format("  Trace:\n    ~w\n",[ValList]).
+	case is_string(ValList) of
+		true ->
+			format("  Trace:\n    ~s\n",[ValList]);
+		partial ->
+			format("  Trace:\n    ~p\n",[ValList]);
+		false ->
+			format("  Trace:\n    ~w\n",[ValList])
+	end.
+
 stack_string(AI) ->
-	format("  Stack State: ~p\n",[dict:fetch(st,AI)]).
+	ST = dict:fetch(st,AI),
+	FormattedST = 
+		lists:map(fun({M,F,A,[_,L]}) ->
+						{M,F,A,L};
+					 (Tuple) ->
+					 	Tuple
+			  	  end,
+			      ST),
+	lists:foldl(fun(Elem,Acc) ->
+					Acc ++ format("    ~p\n",[Elem])
+				end,
+				"  Stack\n",
+				FormattedST).
+	
 call_string(AI) ->
 	case dict:find(ca,AI) of
 		{ok,[Callee | Args]} ->	% The Callee is a reference to a fun identifier. Think how to improve the clarity it provides
 			"  Call POI Info:\n" ++
 			callee_internal_string(Callee) ++
-			args_internal_string(Args);
+			format("    Args: [~s]\n",[args_internal_string(Args)]);
 		error ->
 			[]
 	end.
 callee_string(AI) ->
-	case dict:find(ca,AI) of
-		{ok,[Callee | _]} ->	% The Callee is a reference to a fun identifier. Think how to improve the clarity it provides
+	case dict:find(ca, AI) of
+		{ok, [Callee | _]} ->	% The Callee is a reference to a fun identifier. Think how to improve the clarity it provides
 			"  Call POI Info:\n" ++
 			callee_internal_string(Callee);
 		error ->
 			[]
 	end.
 args_string(AI) ->
-	case dict:find(ca,AI) of
-		{ok,[_ | Args]} ->
+	case dict:find(ca, AI) of
+		{ok, [_ | Args]} ->
 			"  Call POI Info:\n" ++
-			args_internal_string(Args);
+			format("    Args: [~s]\n",[args_internal_string(Args)]);
 		error ->
 			[]
 	end.
 
 callee_internal_string(Callee) ->
-	format("    Calle: ~p\n",[Callee]).
+	% {_, ModName} = erlang:fun_info(Callee,module),
+	% {_, FunName} = erlang:fun_info(Callee,name),
+	% {_, Arity} = erlang:fun_info(Callee,arity),
+	% CalleeString = 
+	% 	case ModName of
+	% 		erl_eval ->
+	% 			format("fun ~p",[FunName]);
+	% 		_ ->
+	% 			format("~p:~p/~p",[ModName, FunName, Arity])
+	% 	end,
+	% format("    Callee: ~s\n",[CalleeString]).
+	format("    Callee: ~p\n",[Callee]).
 
 args_internal_string(Args) ->
-	StringArgs = format("~w", [Args]), 
-	FinalArgs = string:substr(StringArgs, 2, length(StringArgs)-2), 
-	format("    Args: [~s]\n",[FinalArgs]).
+  	ArgList = lists:map(fun(Arg) ->
+              case is_string(Arg) of
+                true ->
+                    format("\"~s\"", [Arg]);
+                _ when is_list(Arg) ->
+                    format("[~s]", [args_internal_string(Arg)]);
+                _ ->
+                	format("~w", [Arg])
+              end
+            end,
+            Args),
+  	FinalArgs = lists:foldl(
+            fun(E,[]) ->
+              E;
+              (E,S) ->
+                S ++ "," ++ E
+            end,
+            [],
+            ArgList), 
+  	format("~s",[FinalArgs]).
 
 %%%%%%%%%%%%%%%%%%%%
 %% DEFAULT REPORT %%
@@ -424,6 +568,22 @@ default_report({POE, VOE, _}, {PNE, VNE, _}, His) ->
 	CompleteNewValues = lists:reverse([VNE | NewValues]), 
 	poi_string(POE) ++ value_string(CompleteOldValues) ++
 	poi_string(PNE) ++ value_string(CompleteNewValues).
+
+length_report({POE, VOE, _}, PNs, His) when is_list(PNs) ->
+	{OldValues, NewValues} = get_poi_history_info(POE, PNs, His),
+	CompleteOldValues = lists:reverse([VOE | OldValues]), 
+	poi_string(POE) ++ value_string(CompleteOldValues) ++
+	poi_string(PNs) ++ value_string(NewValues);
+length_report(POs, {PNE, VNE, _}, His) when is_list(POs) ->
+	{OldValues, NewValues} = get_poi_history_info(POs, PNE, His),
+	CompleteNewValues = lists:reverse([VNE | NewValues]), 
+	poi_string(POs) ++ value_string(OldValues) ++
+	poi_string(PNE) ++ value_string(CompleteNewValues).
+
+no_poi_report({POE, _, _}, {PNE, _, _}, _) ->
+	format("Unrelated POIs found:\n"
+	"+ ~p\n"
+	"+ ~p\n",[POE,PNE]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -462,10 +622,44 @@ cf_general(TO, TN, Conf, PoiRel, InternalIdDict) ->
 
 cf_general([], [], _, _, _, _) -> 
 	true;
-cf_general([TOE | _], [], _, _, _, His) -> 
-	{false, first_trace_longer, {TOE, undefined, lists:reverse(His)}};
-cf_general([], [TNE | _], _, _, _, His) -> 
-	{false, second_trace_longer, {undefined, TNE, lists:reverse(His)}};
+cf_general([TOE | _], [], Conf = #config{ubrm = UBRM}, PoiRel, InternalIdDict, His) -> 
+	case His of
+		[] ->
+			{
+				false, 
+				second_trace_empty, 
+				fun() -> 
+					special_fetch(second_trace_empty, UBRM, {old, TOE}, lists:reverse(His), PoiRel, InternalIdDict) 
+				end
+			};
+		_ ->
+			{
+				false, 
+				first_trace_longer, 
+				fun() -> 
+					special_fetch(first_trace_longer, UBRM, {old, TOE}, lists:reverse(His), PoiRel, InternalIdDict) 
+				end
+			}
+	end;
+cf_general([], [TNE | _], Conf = #config{ubrm = UBRM}, PoiRel, InternalIdDict, His) -> 
+	case His of
+		[] ->
+			{
+				false, 
+				first_trace_empty, 
+				fun() -> 
+					special_fetch(first_trace_empty, UBRM, {new, TNE}, lists:reverse(His), PoiRel, InternalIdDict) 
+				end
+			};
+		_ ->
+			{
+				false, 
+				second_trace_longer, 
+				fun() -> 
+					special_fetch(second_trace_longer, UBRM, {new, TNE}, lists:reverse(His), PoiRel, InternalIdDict) 
+				end
+			}
+	end;
 cf_general([TOE | TO], [TNE | TN], Conf = #config{tecf = TECF, ubrm = UBRM}, PoiRel, InternalIdDict, His) -> 
 	case related_pois(TOE, TNE, PoiRel) of
 		true ->
@@ -481,7 +675,11 @@ cf_general([TOE | TO], [TNE | TN], Conf = #config{tecf = TECF, ubrm = UBRM}, Poi
 					} 
 			end;
 		UBT ->
-			{false, UBT, {TOE, TNE, lists:reverse(His)}}
+			{false, UBT, 
+				fun() ->
+					my_fetch(UBT, UBRM, TOE, TNE, lists:reverse(His), InternalIdDict)
+				end
+			}
 	end.
 
 related_pois({POI1, _, _}, {POI2, _, _}, PoiRel) ->
@@ -499,6 +697,25 @@ my_fetch(UBT, UBRM, TOE, TNE, His, InternalIdDict) ->
 			(dict:fetch(default_error, UBRM))(NewTOE, NewTNE, NewHis)
 	end.
 
+special_fetch(UBT, UBRM, {old, {PO, VO, AIO}}, His, PoiRel, InternalIdDict) ->
+	PNs = get_related_pois(PO, old, PoiRel),
+	NewTOE = {dict:fetch(PO, InternalIdDict), VO, AIO}, 
+	NewPNs = [dict:fetch(P, InternalIdDict) || P <- PNs],
+	NewHis = lists:map(fun({{PO, VO, AIO}, {PN, VN, AIN}}) ->
+						 {{dict:fetch(PO, InternalIdDict), VO, AIO}, {dict:fetch(PN, InternalIdDict), VN, AIN}}
+					   end, 
+					   His),
+	(dict:fetch(length_error, UBRM))(NewTOE, NewPNs, NewHis);
+special_fetch(UBT, UBRM, {new, {PN, VN, AIN}}, His, PoiRel, InternalIdDict) ->
+	POs = get_related_pois(PN, new, PoiRel),
+	NewTNE = {dict:fetch(PN, InternalIdDict), VN, AIN}, 
+	NewPOs = [dict:fetch(P, InternalIdDict) || P <- POs],
+	NewHis = lists:map(fun({{PO, VO, AIO}, {PN, VN, AIN}}) ->
+						 {{dict:fetch(PO, InternalIdDict), VO, AIO}, {dict:fetch(PN, InternalIdDict), VN, AIN}}
+					   end, 
+					   His),
+	(dict:fetch(length_error, UBRM))(NewPOs, NewTNE, NewHis).
+
 undo_id_transformation({POld, VOld, AIOld}, {PNew, VNew, AINew}, His, IdDict) ->
 	{
 		{dict:fetch(POld, IdDict), VOld, AIOld}, 
@@ -508,6 +725,32 @@ undo_id_transformation({POld, VOld, AIOld}, {PNew, VNew, AINew}, His, IdDict) ->
 				  end, 
 				  His)
 	}.
+
+get_related_pois(P, Flag, Rels) ->
+	case Flag of
+		old ->
+			lists:filtermap(
+						 fun({OP, NP}) ->
+						 	case OP == P of
+						 		true ->
+						 			{true, NP};
+						 		false ->
+						 			false
+						 	end
+						 end,
+						 Rels);
+		new ->
+			lists:filtermap(
+						 fun({OP, NP}) ->
+						 	case NP == P of
+						 		true ->
+						 			{true, OP};
+						 		false ->
+						 			false
+						 	end
+						 end,
+						 Rels)
+	end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%% INDEPENDENT COMPARISON FUNCTION %%%%%%
@@ -648,12 +891,47 @@ poi_translation(Poi) ->
 			{F, L, 'if', O};
 		{F, L, case_expr, O} ->
 			{F, L, 'case', O};
+		{F, L, list_comp, O} ->
+			{F, L, lc, O};
 		_ ->
 			Poi
 	end.
 
 format(Str,Args) ->
 	lists:flatten(io_lib:format(Str,Args)).
+
+is_string(List) when is_list(List) -> 
+  case lists:all(fun is_print/1, List) of
+    true ->
+      true;
+    false ->
+      case lists:all(fun is_list/1, List) of
+        true ->
+          is_internal_string(List);
+        false ->
+          false
+      end
+  end;
+is_string(_) -> false.
+
+
+is_internal_string(List) ->
+  catch lists:foldl(
+          fun(Elem,_) -> 
+            case is_print(Elem) of
+              true ->
+                partial;
+              false when is_list(Elem) ->
+                is_internal_string(Elem);
+              false ->
+                throw(false)
+            end
+          end,
+        true,
+        List).
+
+is_print(X) when X >= 32, X < 127 -> true;
+is_print(_) -> false.
 
 printer(Node) -> io:format("~p\n", [Node]).
 
@@ -740,4 +1018,5 @@ printer(Node) -> io:format("~p\n", [Node]).
 %     end, 
 %     true, 
 %     ZippedList).
+
 

@@ -1,0 +1,434 @@
+
+***********************************************************************************************************************
+
+* Utilizar mutation testing real en Erlang. Trabajo separado de SecEr
+
+- https://www.guru99.com/mutation-testing.html
+
+***********************************************************************************************************************
+
+* Inferencia de correspondencia de partes de programa automaticamente
+
+- Identificar la correspondencia de un POI en otra version de un programa. 
+- Para conseguir esto se define un punto de una version como POI, y se trazarían (¿Todas?) las expresiones de la otra version
+  buscando cual de ellas tiene la misma traza que la definida. Habría que intentar acotar las expresiones a instrumentar
+  basándonos en el diff y algún tipo de análisis a definir.
+- Falta motivación
+- Ver: Automatically Documenting Program Changes
+
+***********************************************************************************************************************
+
+* Mutación dirigida por calidad de los tests según diferentes medidas:
+
+- Alcanzar la cobertura deseada
+- Alcanzar el numero máximo de tests esperados
+- Alcanzar el timeout 
+- Medida que tenga en cuenta los cambios/variedad de trazas
+- Ver de integrar Cover http://erlang.org/doc/man/cover.html
+
+***********************************************************************************************************************
+
+* Tipos de POI
+
+- Que puedan existir relaciones de este tipo: {[POI],[POI]} sobretodo para funciones con todas sus cláusulas o correspondencias multiples de POIs,
+  Es decir, Definir una lista de POIs diciendo que todos están relacionados con todos: {[POI_1,POI_2,POI_3],[POI_1',POI_2',POI_3',POI_4']}
+- Trazar funciones (todas las cláusulas entre ellas)
+- POIs condicionales: Añadir una funcion booleana en el POI que se añadira en la instrumentacion y decidirá si un POI se envia o no.
+- Al seleccionar una función de entrada con un flag -pois RETURN_VAL -funs X se buscan todas las posibles expresiones de retorno de esa funcion en ambos programas y se emparejan todas con todas como relaciones.
+- Dar alias a POIs y relaciones (de manera opcional)
+
+***********************************************************************************************************************
+
+* Generalización
+
+- Puede contener la introducción al paper de SecEr para Java
+- ¿Somos grey testing? https://www.guru99.com/grey-box-testing.html
+
+***********************************************************************************************************************
+
+* Performance
+
+- el nombre es un tanto ambicioso. mejor hablar de scalability testing, aunque podemos incorporar ideas de load testing
+- Comparar performance (tiempo, memoria...) 
+- Para contar el numero de llamada se puede utilizar http://erlang.org/doc/man/cprof.html
+- Para el tiempo ver de utilizar _
+	http://erlang.org/doc/man/eprof.html
+	http://erlang.org/doc/man/fprof.html
+- Para memoria se podria utilizar http://erlang.org/doc/man/instrument.html
+- Para medir el overhead de los locks http://erlang.org/doc/man/lcnt.html
+- Seria interesante permitir comparar una unica version consigo misma. La idea es que en vez de tener el mismo input, cambia el input de un argumento en un factor dado. Por ejemplo, lanzamos con una lista de 10 elementos y luego lo mismo con una de 100. Se comparan resultados y se ve si por ejemplo el tiempo para ejecutar 100 es 10 veces el necesario para ejecutar 10, o es mucho mayor. 
+- Tal vez relacionado con benchmark testing: https://www.guru99.com/benchmark-testing.html
+
+- Cosas que se pueden medir
+Processor Usage - amount of time processor spends executing non-idle threads.
+Memory use - amount of physical memory available to processes on a computer.
+Disk time - amount of time disk is busy executing a read or write request.
+Bandwidth - shows the bits per second used by a network interface.
+Private bytes - number of bytes a process has allocated that can't be shared amongst other processes. These are used to measure memory leaks and usage.
+Committed memory - amount of virtual memory used.
+Memory pages/second - number of pages written to or read from the disk in order to resolve hard page faults. Hard page faults are when code not from the current working set is called up from elsewhere and retrieved from a disk.
+Page faults/second - the overall rate in which fault pages are processed by the processor. This again occurs when a process requires code from outside its working set.
+CPU interrupts per second - is the avg. number of hardware interrupts a processor is receiving and processing each second.
+Disk queue length - is the avg. no. of read and write requests queued for the selected disk during a sample interval.
+Network output queue length - length of the output packet queue in packets. Anything more than two means a delay and bottlenecking needs to be stopped.
+Network bytes total per second - rate which bytes are sent and received on the interface including framing characters.
+Response time - time from when a user enters a request until the first character of the response is received.
+Throughput - rate a computer or network receives requests per second.
+Amount of connection pooling - the number of user requests that are met by pooled connections. The more requests met by connections in the pool, the better the performance will be.
+Maximum active sessions - the maximum number of sessions that can be active at once.
+Hit ratios - This has to do with the number of SQL statements that are handled by cached data instead of expensive I/O operations. This is a good place to start for solving bottlenecking issues.
+Hits per second - the no. of hits on a web server during each second of a load test.
+Rollback segment - the amount of data that can rollback at any point in time.
+Database locks - locking of tables and databases needs to be monitored and carefully tuned.
+Top waits - are monitored to determine what wait times can be cut down when dealing with the how fast data is retrieved from memory
+Thread counts - An applications health can be measured by the no. of threads that are running and currently active.
+Garbage collection - It has to do with returning unused memory back to the system. Garbage collection needs to be monitored for efficiency.
+
+***********************************************************************************************************************
+
+* OUTPUT
+
+- No se sabe si todas las relaciones entre POIS se han ejecutado, cuales no, cuantos valores se han generado para el POI, 
+  si se han descartado por TIMEOUT...
+- Indicar en el resultado mostrado el punto de discrepancia de algún modo (subrayándolo o separando parte igual y parte diferente).
+  Esto sera mas util cuando tengamos la pila de calls y podamos mostrar tanto informacion de los argumentos de la call y las calls
+  pendientes de resolver
+- Mostrar el porcentaje de los que pasan por el POI y los errores también de los que ejecuten el POI.
+- Reducir la informacion de las trazas cuando estas son excesivamente largas (como cuando Erlang reporta un error "..."). Relacionado con shrinking
+- Dar un report cuantitativo de los errores y los POIs en los que se encuentra la divergencia:
+	Ej:
+		Mismatching tests: 21 (POI1 - POI2') 33 (POI3 - POI5')
+- Clases de POIs donde un resultado sea una subsecuencia del otro. Ej: P1: [1,2,3,4] - P2: [1,2,2,3,3,4,4,5]
+- Mensaje para iguales: 
+  --------------------
+  Generated tests: 320 (300 evaluating the point of interest)
+  Both versions of the program generate identical traces in all cases
+  --------------------
+
+***********************************************************************************************************************
+
+* Usability
+
+- Flag para POIs que defina si se ha de guardar la pila (para todo los pois) y/o la llamada (solo pois de calls). A parte, tener un flag de secer activa estos flags para todos los pois.
+- Funcions que definen parte del valor a comparar y funciones que definen como se reporta el error. Se utiliza un record para representar cada elemento de la traza, i.e. #trace_element{value = V, stack = S, call = C}...
+- Configuracio global donde se defina la función de extracción y de error report, ahi tambien estan los flags para indicar si se ha de guardar la stack para todos y las llamadas. 
+- Calls: Argumentos + Resultado
+- Cuando eliges trazar una call, solo se traza el valor de retorno. Es interesante trazar también los argumentos de entrada para poder diferenciar entre errores de la función o de argumentos diferentes. Solo se informa de los argumentos cuando hay discrepancia en el valor de retorno.
+- Pilas de llamada junto con el valor del POI
+- Explorar la idea de ir comparando las pilas de llamadas para ir haciendo el link entre las funciones de las versiones. Cuando las pilas difieran puede ser indicativo de una discrepancia. [COPIADO DE Inferencia automática de input functions y POIs]
+- Añadir tambien como informacion adicional (como las stacks y las llamadas) el program state, es decir, los valores de las variables en un punto dado. 
+- Utilizar test de entrada los inputs del usuario
+- Cuando es unexpected trace order y hay implicada una call
+	+ Poner en la traza los argumentos de la llamada (ignorar esto al comparar y meterlo en una pila)
+	+ Sacar de la pila los argumentos cuando llega en la traza el retorno de la llamada
+	+ Esto puede ayudar a mostrar una discordancia entre una llamada resuelta y una pendiente de resolver cuando
+	  un POI diferente se introduce entre ambas
+- GUI, GIT PLUGIN
+- API para que otras herramientas puedan utilizar la instrumentación, la traza, los comparadores...
+
+***********************************************************************************************************************
+
+* SecEr para Java
+
+***********************************************************************************************************************
+
+* [OFFTOPIC] Mejorar Cover para hacer que trabaje a nivel de AST y no de linea
+
+
+***********************************************************************************************************************
+
+* Creación de test data en base a técnicas habituales de black box testing
+
+- In Black Box Testing the code is not visible to the tester . Your functional test cases can have test data meeting following criteria -
+
+No data: Check system response when no data is submitted
+Valid data: Check system response when Valid  test data is submitted
+Invalid data: Check system response when InValid  test data is submitted
+Illegal data format: Check system response when test data is in invalid format
+Boundary Condition Data set: Test data meeting boundary value conditions
+Equivalence Partition Data Set: Test data qualifying your equivalence partitions.
+Decision Table Data Set: Test data qualifying your decision table testing strategy
+State Transition Test Data Set: Test data meeting your state transition testing strategy
+Use Case Test Data: Test Data in-sync with your use cases.
+ 
+
+Note: Depending on the software application to be tested, you may use some or all of the above test data creation
+
+- también se puede integrar técnicas de orthogonal array testing
+
+https://en.wikipedia.org/wiki/Orthogonal_array_testing
+https://www.guru99.com/orthogonal-array-testing.html
+
+- O de fuzzing (¿Es realmente lo que hacemos en mutation ITC?)
+
+https://www.guru99.com/fuzz-testing.html
+https://en.wikipedia.org/wiki/Fuzzing
+
+- O de parallel testing (muy similar conceptualmente a nustro approach)
+
+https://www.guru99.com/parallel-testing.html
+
+***********************************************************************************************************************
+
+* hacer mocking de valores trazados
+
+Una vez se detecte un error en un POI, dar el POI ya por buggy y a partir de ese momento utilizar el valor del programa original en vez del de la nueva version para intentar encontrar mas errores que estén por detrás (en la evaluación) del POI buggy.
+* Creo que esto se debe hacer en la instrumentación. Tras enviar la traza, el programa instrumentado espera con un receive a que el tracer le diga que hacer a posteriori. Si le dice por ejemplo continue, entonces como siempre. Si le dice {valor, X}, sustituira el valor que haya enviado al tracer por el que el le devuelva. Para ello el tracer debe estar pendiente de alguan manera, por ejemplo, cuando me llega la 5ª traza para este POI entonces devuelvo el valor que tenia guardado. Esta informacion tal vez deberia estar guardada en el el ITC, de manera que ya no es una llamada con args, sino que pasa a ser uan tupla, e.g. (f(3), mock(5, mod1, POI1)) -> el ITC es POI pero mockeando la 5ª ejecucion de POI1 en mod1. De hecho los mocks deberian ser una lista, porque tal vez se quiera seguir mockeando sobre un ITC ya mockeado.
+* Nuevos tipos de errores. Ahora podemos tener errores normales, o errores que vengan pese haber hecho un mocking de valores previo.
+* Sobre que version se hace el mocking también es algo que debería decidirse. Se pueden crear 2 ITCs diferentes que hagan mocking sobre cada uno y meterlos en pendientes, e.g.  (f(3), mock(5, mod1, POI1)) y  (f(3), mock(3, mod2, POI1))
+* Esta idea puede también ayudar a evitar recomputar llamadas internas cuya traza ya es conocida. Especialmente util en llamadas recursivas. Por ejemplo, si se computa fib(3), y mas tarde fib(5) llama a fib(3), no ejecutarla y copiar directamente su traza.
+
+***********************************************************************************************************************
+
+* Adaptar nuestro sistema o utilizar técnicas similares a API testing, interface testing, integration testing, configuration testing, interoperability testing, storage testing
+
+- API testing
+- https://www.guru99.com/api-testing.html
+- https://en.wikipedia.org/wiki/API_testing
+
+- interface testing
+- https://www.guru99.com/interface-testing.html
+
+- integration testing
+- La idea de integration testing es ver que todos lo módulos cuadran entre si. Si hay algun módulo que no cuadra, se puede coger valores de la anterior version y seguir el testing para encontrar más errores o para buscar la fuente de la discrepancia.
+- Parecido o casi igual a API testing 
+- https://www.guru99.com/system-integration-testing.html
+- https://en.wikipedia.org/wiki/Integration_testing
+
+- Configuration testing
+- Motivacion: Facilitar la medida entre diferentes configuraciones en puntos concretos del codigo (los POIs)
+- https://www.guru99.com/configuration-testing.html
+
+- interoperability testing
+- https://www.guru99.com/interoperability-testing.html
+
+- storage testing
+- la idea es que se puede comprobar que ambas versiones guardan los datos en el mismo fichero o guardan las mismas entradas en una base de datos
+- https://www.guru99.com/storage-testing.html
+
+***********************************************************************************************************************
+
+* Inferencia automatica de input functions y POIs
+
+- Las input functions se infieren en base a donde se han hecho los cambios. Se establecen como input functions las funciones 
+  que llaman a una funcion que ha sufrido la modificacion mediante el callgraph. 
+- Deteccion automatica de POIs:
+	+ Seleccionar la ultima expression de la funcion de ejecucion e ir refinando si esta falla. Seleccionar cada llamada a funcion
+	  dentro de esta funcion inicial y establecer una correspondencia entre ambos programas (esto es jodido si se cambian nombres).
+	  Para verificar cada call, ejecutaremos los argumentos de esa call generados por uno de las dos versiones (export_all) por si 
+	  ambos argumentos no fueran iguales, para definir si estas se comportan o no igual. Si ambas se comportan igual esta funcion se 
+	  pasara a una lista de "estudiadas" y no se analizará en un futuro.
+- Deteccion automatica de POIs analizando las diferencias entre ambas versiones del programa.
+- Parece que esta libreria calcula el callgraph http://erlang.org/doc/man/xref.html
+- Explorar la idea de ir comparando las pilas de llamadas para ir haciendo el link entre las funciones de las versiones. Cuando las pilas difieran puede ser indicativo de una discrepancia. 
+- En base al diff habra módulos que no hayan cambiado. Luego de los que han cambiado habra que ver dentro de que funciones esta el cambio. En base a esto ver que la función sigue computando lo mismo probando esa misma función como input y las que le llaman (y asi recursivamente si el resultado puede afectar al output de las que le llaman).
+- Asumir igualdad entre funciones. por ejemplo si en el modulos nuevo esta m:f/2 y en el viejo tambien se asume que su comportamiento es igual. Se pueden listar estas assumptions y el usuario puede elegir si algunas de ellas no deben considerarse equivalentes. De entre las que han cambiado el nombre o estan en una version y no en la otra tal vez seria bueno preguntar al usuario que relacion existe, si son totalmente nuevas, etc...
+
+***********************************************************************************************************************
+
+* Concurrencia
+
+- Definir un POI y guardarse no solo la traza del POI sino el historial de spawns,sends,receives y toda 
+  accion concurrente. Con este historial, intentar reproducir los eventos en el mismo orden en la otra version del programa
+  para que ambas ejecuciones sean equivalentes y reciban toda la informacion en le mismo orden. Entra el concepto de mutacion
+  del historial, infiriendo a partir de este llegadas de los mensajes en distinto orden (mutacion de interlivings).
+- Gastar concuerror para poder aplicarlo en concurrencia.
+- Concuerror para conseguir nuevos interlivings o todos como una especie de CutEr a nivel de concurrencia
+
+***********************************************************************************************************************
+
+* Inferencia de propiedades
+
+- Intentar inferir la relacion entre el input y el POI tanto para descartar trazas equivalentes y poder informar al usuario
+  del tipo de relacion que parece existir Input-POI (esto seria aplicable p.e. para series aritmeticas o geometricas en numeros).
+
+***********************************************************************************************************************
+
+* Mutacion
+
+- Modificar inputs generados compuestos (list, tuple...) por partes al mutar manteniendo parte del anterior input y no generando
+  uno nuevo desde 0. 
+- Tener en cuenta los tipos union (union = [list,tuple,integer]) y decidir si preservar el tipo del input dentro del union al mutarlo.
+- Tenemos que asegurarnos de pasar por todas las cláusulas y evitar que se generen valores siempre para la misma cláusula
+  en el mutation testing
+- Utilizar slicing para determinar qué parámetros son relevantes para la mutación (i.e., cuales afectan a que se llegue al POI y a sus valores). Esto se podría hacer para cada uno de los POIs de manera independiente.
+
+***********************************************************************************************************************
+
+* Reutilización de casos generados
+
+- Posibilidad de reutilizar los casos generados en la primera ejecución que dan error en una relación concreta para una futura
+  ejecución con POIs distintos buscando precisar la fuente del error.
+- Generar eunit case y utilizarlos como input function
+- Reutilizar casos de test para futuras ejecuciones
+- Mete que SecEr debería ser capaz de usar también los tests que haya definido el usuario
+  es decir, que aproveche tests que ya existan anteriormente
+  de tal manera que su base de tests es incremental, con cada nueva release, pero también con los tests que quiera definir el usuario.
+- Plantearse añadir features para re-testing: https://www.guru99.com/re-testing-vs-regression-testing.html
+
+***********************************************************************************************************************
+
+* Concolic testing con POIs
+
+- Mejorar CutEr
+- Crearlo desde cero
+  + Expresiones de ramificación por funciones
+- ¿Motivación?
+
+***********************************************************************************************************************
+
+* Mejorar precision del análisis
+
+- Slicing. Hacer slicing sobre el POI para evitar que Typer y CutEr generen inputs que pasen por ramas que no ejecutaran el POI
+- Añadir errores en las ramas en las que no este el POI para mejorar la precision de TypEr y CutEr a la hora de definir inputs,
+  dirigiendo los tipos definidos a la generación de casos de prueba que ejecutaran el POI.  
+
+***********************************************************************************************************************
+
+* Funciones de comparación
+
+- Buscar y analizar el comportamiento de multiples POIs en independent cuando varios de ellos fallen. 
+  Para mostrarlo tendremos una lista de trazas[{..},{..},...] en lugar de una traza {..} y el output no se generara como debe.
+- Dar la posibilidad de que el usuario defina una función de comparación que sea la que decide si el input se muta o no comparando esa traza con las ya generadas.
+- Función de comparación para cada elemento de la traza en lugar de para la traza entera. Implementado al principio
+- Función de comparación de todas las trazas generadas por SecEr. Enfocado a performance para contar el total de tiempo 
+  o memoria entre las versiones
+- En lugar de comparar a saco (==) sea una función de correspondencia. 
+	Ej:
+	P1: [1,2,3] - P2: {[1,2,3],Q} 
+	FuncionCorrespondencia = P1 == firstElem(P2) 
+- Poner más de una función de comparación. La idea es que se pasan las trazas por cada una de las funciones y si alguna da false, se reporta y aparte se tiene en cuenta para mutar. Dar prioridad a test en los que fallen el mayor numero de funciones de comparación. Por ejemplo, si se utilizan 3 funciones de comparación, y al pasar unas trazas se detecta que las 3 funciones de comparación fallan, ese test tendrá más prioridad que uno en el que solo falle 1 función de comparación.
+- Plantear si se podría hacer funciones de comparación que se puedan componer. Por ejemplo, utilizar una función de comparación de performance e independent a la vez. Una manera de solventar esto es haciendo algunas funciones paramétricas, e.g. fun independent(fun performance/2).
+
+***********************************************************************************************************************
+
+* Sin clasificar
+
+- Shrinking:
+  + Categorizar los errores en base a su output del shrinking. No mutar los inputs que hagan shrinking a un mismo valor previamente generado. (Habria que mirar el impacto en tiempo de hacer shrinking)
+- Gastar proper para hacer la comparación de trazas (código Tama secer_proper3.erl)
+- Ver si se pueden aprovechar ideas de concolic testing e intentar hacer algo parecido pero teniendo en cuenta 2 programas. 
+- Explorar el usos de http://erlang.org/doc/man/sasl_app.html para reportar errores o aprovechar datos que en ellos pueda haber.
+
+***********************************************************************************************************************
+
+
+-----------
+  TECNICA
+-----------
+
+- Hacer interseccion entre tipos Typer y specs
+- Modulos con el mismo nombre no pueden convivir. Esto se puede evitar ejecutando todo lo del Program1 primero
+  y luego cogiendo los inputs y ejecutandolo para el Program2. Así esta explicado en el paper pero no implementado.
+  En la implementacion se ejecutan los dos a la vez y se comparan. Solucion Tama Erlang Nodes en EDD. 
+- Plantearse compilacion en binary sin generar .beam e intentar minimizar los modulos que se instrumentan
+- Ejecutar la generacion de tests (cuter + mutaciones) para ambos programas en paralelo, que se comunican con el servidor
+  que controla las trazas y mira si esa traza se genero en cualquiera de los 2 programas y responde en consecuencia.
+- Posibilidad de los POIs esten en distintos modulos en la nueva version denotando en cada POI su fichero y la 
+  correspondencia entre funciones (old_mod:f1() - new_mod1:f2()). Esto esta relacionado con la posibilidad de 
+  tener dos modulos con el mismo nombre y cambiar el timeout por un test limit. Ejecucion secuencial o abrir dos
+  procesos erlang cargando cada modulo en uno de ellos.
+- El POI y la funcion de entrada no esten en el mismo modulo.
+- Obtener las trazas de 2 programas en paralelo y matar la ejecución al hallar una divergencia (ponerlo como algo opcional)
+
+- Para tiempos de 2 segundos la ejecucion del segundo programa da timeout (turing.erl), mirar por que.
+- Contemplar la opcion de autoexportar la funcion seleccionada como entrada cuando no lo este en lugar de notificar de que 
+  no esta exportada
+- Dar una opcion para inhibir tipos de errores concretos. Ej: POI not executed.
+- Categorizar los errores de empty_trace de una manera mejor. Arreglar lo de empty trace para que salga toda la traza del POI 
+  esperado y que se vea que uno tiene mas valores que el otro explicitamente. En el resumen de arriba poner la relacion de los 
+  POIs y los errores de cada tipo length(POI1) > length(POI2) o viceversa con el numero de veces que pasa cada uno. Añadir una
+  call de cada tipo de error.
+  ¡! Parcialmente resuelto. En caso de relacion de un POI2 con mas de 1 POI1 o viceversa habria un error y no se muestra la traza
+- Añadir algo de información de cuando una de las ejecuciones no termina correctamente. Pudiendo decir cuando hay por ejemplo una diferencia de 
+  longitud si la ejecucion de la traza mas corta termino en error o no. Usarlo tanto en trazas con errores como con TIMEOUT mostrando la informacion
+  obtenida hasta el momento del error
+- Si en la ejecucion hay errores de ejecucion y por eso no se alcanza el POI notificar que no se alcanzo por error de ejecucion.
+- Notificar al usuario cuando una fichero no existe en la ruta especificada al definir un POI. Decidir si ignorar la relacion o parar la ejecucion
+- No se pueden seleccionar las operaciones ni la igualdad especificando un POI del tipo {file,line,{op,'+'},occurrence}. Se puede hacer 
+  actualmente con los POIs linea-columna
+- Interseccion de las funciones exportadas como funciones de entrada cuando no se especifican funciones de entrada entre versiones
+- Esta implementado de 1 poi en el antiguo a 2 pois en el nuevo, pero no al reves. Hay que mirar como hacer que estas listas de 
+  relaciones sean las adecuadas sin redundancia.
+- Discutir el formato de entrada del comando:
+	Actualmente: 
+		./secer -pois "test_secer:rel()" -funs "test_secer:funs()" -to 15 -cfun "test_secer:less_than/2"
+	Propuesta Alternativa:
+		./secer -pois "test_secer:rel/1,[27]" -funs "test_secer:funs/0" -to 15 -cfun "test_secer:less_than/2"
+- Identificar cada elemento de la traza con un contador despues de tenerla calculada, esto nos permite en la ejecucion
+  independiente ver quien fue el primer POI que no coincidio en caso de error. Sera aquel que en la traza del
+  programa nuevo tenga el numero mas bajo.
+- Si le cambiamos el nombre al modulo habria que cambiar las referencias al propio modulo en el fichero. Evitar el cambio
+	Ej:
+		old_mod_name:function() -> new_mod_name:function()
+		?MODULE no hay que cambiarlo (aunque en el AST no aparecen las macros)
+- Timeout por funcion o timeout total (Ahora esta por funcion)
+- Cuando el POI es una variable en un patron, al que llega con un valor previo, se utiliza un flag para indicar si quieres enviar 
+  el valor que intenta hacer matching o el que tenía en ese momento de la ejecucion.
+- Dividir las guardas para tener en cuenta cortocircuitados y instrumentarlo a base de cases de cases
+- Parametro fun:
+  ¿Proper genera funs? 
+  ¿Cuter como lleva lo de las funs como parametros de entrada?
+- Reprintear el AST al principio para que la organización del mismo sea adecuada al medir la cobertura con COVER
+- typer_mod.erl es una fuente de error, por las distintas versiones de typer. Hay que notificar el error en la herramienta
+  con algun mensaje y dar una direccion github para descargar la version alternativa. 
+  Plantearse instrumentar el modulo typer del usuario al instalar SecEr o al ejecutarlo, introduciendo los cambios necesarios para el correcto funcionamiento de la herramienta.
+- Al realizar el cambio de las ejecuciones de secuencial a paralelo con varios nodos Erlang ha empeorado de forma considerable la  
+  performance. Este cambio es necesario para no renombrar los módulos, pero tiene un coste considerable en casos generados. 
+  https://stackoverflow.com/questions/12410531/erlang-rpcpmap-on-multiple-nodes-vs-single-node
+  Plantearse una alternativa para hacerlo todo en 1 nodo si esto fuera posible.
+
+--------
+  DONE
+--------
+
+- Conversion de tipos Typer a tipos Proper
+- Calculo de interseccion de tipos cuando una variable se utiliza varias veces en una clausula f(X,A,X)
+- Los tipos son los de las spec definidas por el usuario
+- Calcular tipo por clausulas utilizando typer Tama
+- case 1 of
+	{A,B} -> ...
+
+  Se pueden seleccionar A y la tupla como POIs. En este caso, el usuario esta interesado en el valor de A y luego en
+  el de la tupla. Si no se puede alcanzar el valor de A, el de la tupla tampoco se devolverá porque esto generaria
+  huecos en las trazas.
+- Dar prioridad en la cola de inputs mutados a aquellos inputs que vienen de trazas diferentes entre ellas (T1 /= T2) estableciendo
+  diferentes prioridades para los inputs
+- El usuario en su comparacion devuelve {false,Msg,P1,P2} o solo false.
+- Si no hay errores de ejecucion y no se alcanza el POI sacar traza vacia.
+- Sacar todas las trazas de un POI aunque haya otras de otros POIs intercaladas.
+- Plantearse como mejorar el empty_trace porque no es muy significativo.
+- No puede ser que si un programa de los proporcionados no compila no se notifique al usuario. Hay que avisar al usuario lo primero
+- Mejorar la forma de ver si una traza se ha generado o no. Ahora mismo solo miramos si esa traza existe en uno de los programas. Guardar ambas trazas en lugar de solo 1 y ver si el par de trazas se ha 
+  generado en lugar de mirar si una traza se ha generado para 1 programa.
+- Al reportar el error hay que decir de que POI viene
+- Hacer el espejo. Dividimos el tiempo por 2 y aplicamos la mitad de tiempo a generar inputs en program1 y la otra mitad a generat inputs en program2 (sobretodo por el tema de que CutEr hara que se evaluen 
+  mas caminos). Los inputs se generan desde ambos pero los outputs se generan desde el primero.
+- Definir una lista de puntos de interes, esto lleva a instrumentar todos los puntos de interes simultaneamente, y obtener los resultados de todos en una sola ejecución. 
+- No definir funcion de entrada coger exports
+- Probar si funciona en concurrencia con ejemplos deterministas de concurrencia 
+- Arreglar replace after position, entrar en profundidad en cada elemento de la izq de pos y realizar los cambios pertinentes
+  teniendo en cuenta lo que se sustituye a la antes al profundizar y sustituyendo cada variable con el mismo nombre por la misma
+  FreeVar URGENTE En principio: % DONE
+- Las trazas no vacias obtenidas por cuter se deben utilizar para generar nuevos inputs, no desecharlas % DONE
+- Detectar de que clausula es el input generado por cuter %DONE
+- Cambiar lo del offset por linea, variable y ocurrencia. Utilizar el AST para cambiar ese nodo por slicing_criterion y usar 
+  el nuevo AST para instrumentar directamente % DONE*
+- No sustituir por slicing_criterion sino localizar directamente el SC en la funcion get_path con la informacion line,var,oc. %DONE
+- Tests fijando parametros
+  Utilizar dicts en un servidor cuyo estado son 2 diccionarios (inputs y trazas). % DONE (4 DICTS)
+  Cuando se calcule una mutacion con traza nueva se enviara un mensaje a si mismo con dicha mutacion y el atomo pending para procesarla. Si llega un mensaje de stop se abortara el procesamiento de los 
+  pendings restantes recibidos despues. % DONE (ALGO DIFERENTE)
+- Para integers, cuando proper no genera un test nuevo despues de 50 intentos se incrementa 
+  el rango de valores validos (al no poner rango explicito proper genera enteros entre -20 y 20 aproximadamente) % DONE
+- Definir la aridad en secer y diferenciar entre funciones con el mismo nombre y distinta aridad %DONE
+- Buscar un programa o diseñar uno sencillo donde tengamos 3 versiones (Vital para el paper) % DONE
+  1.- Programa original
+  2.- Version refactorizada con errores
+  3.- Version final sin errores
+- En la LC el solucionar el problema del generador.
+- La solucion de la lc es un generador con la parte de la derecha del POI en lugar de un filtro. 
+- Al seleccionar patron de clause, la guarda debe ponerse a true 
+- Definir una lista de funciones como funcion de entrada 
+- Probar funciones de aridad 0
+

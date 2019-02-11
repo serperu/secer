@@ -1,11 +1,7 @@
 -module(secer_input_gen).
--export([main/4, 
-		%main_random/4, 
-		get_exports/1]).
+-export([main/4, get_exports/1]).
 
 -define(TMP_PATH, "./tmp/").
--define(INPUT_LIMIT, 10000).
--define(CUTER_TIMEOUT, 20).
 
 main(PoisRels, ExecFun, Time, CConf) ->
 	try 
@@ -47,12 +43,8 @@ main(PoisRels, ExecFun, Time, CConf) ->
 			0 ->
 				{BinaryOld, BinaryNew} = instrument_code(PoisRels, FileOld, FileNew, CConf), 
 				cc_server ! die, 
-
-				NodeOld = node_instantiation("secer_trace_old", FileOld, BinaryOld, FunName, Time), 
-				NodeNew = node_instantiation("secer_trace_new", FileNew, BinaryNew, FunName, Time), 
-
-				%ModTmp1 = list_to_atom(filename:basename(FileOld, ".erl")++"Tmp"), 
-				%ModTmp2 = list_to_atom(filename:basename(FileNew, ".erl")++"Tmp"), 
+				NodeOld = node_instantiation("secer_trace_old", FileOld, BinaryOld, FunName, Time*1000 div 3), 
+				NodeNew = node_instantiation("secer_trace_new", FileNew, BinaryNew, FunName, Time*1000 div 3), 
 
 				execute_input(NodeOld, NodeNew, []), 
 				secer ! continue;
@@ -60,8 +52,7 @@ main(PoisRels, ExecFun, Time, CConf) ->
 				% PART 1
 				{ParamClauses, TypeDicts} = analyze_types(FileOld, FunName, Arity), 
 				TimeOut = (Time*1000) div 3, 
-				Inputs = execute_cuter(ModuleName1, ModuleName2, FunName, ParamClauses, TypeDicts, TimeOut), 
-
+				[Inputs] = execute_cuter(ModuleName1, ModuleName2, FunName, ParamClauses, TypeDicts, TimeOut), 
 				% PART 2
 %%%%%%%			
 				{BinaryOld, BinaryNew} = instrument_code(PoisRels, FileOld, FileNew, CConf), 
@@ -131,7 +122,7 @@ main(PoisRels, ExecFun, Time, CConf) ->
 		case whereis(cuterIn) of
 			undefined -> 
 				ok;
-			_ -> 
+			Pid -> 
 				unregister(cuterIn)
 		end
 	end.
@@ -170,7 +161,6 @@ execute_cuter(ModuleName1, ModuleName2, FunName, ParamClauses, Dicts, TimeOut) -
 	{ok, Dic} = dict:find(Params, Dicts), 
 
 	Input = (catch generate_instance({Dic, Params})), 
-	
 	case file:open("./config/nocuter.txt", [read]) of
 		{ok, _} ->
 			%printer("without cuter"), 
@@ -645,7 +635,12 @@ instantiate_server({CFUN, Conf}, PoiRels) ->
 
 	case CFUN of
 		empty ->
-			input_manager ! {set_cfun_config, Conf},
+			case Conf of
+				empty ->
+					input_manager ! {set_cfun_config, secer_api:nuai_config()};
+				_ ->
+					input_manager ! {set_cfun_config, Conf}
+			end,
 			ok;
 		_ -> % Si no es de la librería secer_api hacer esto. En caso contrario no hacerlo
 			input_manager ! {set_cfun, CFUN}
@@ -679,9 +674,10 @@ get_id(POI, Dict) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 node_instantiation(NodeName, FilePath, Binary, FunName, TO) ->	
     TraceNode = list_to_atom(NodeName++"@"++after_char($@,atom_to_list(node()))),	
+    rpc:call(TraceNode, code, purge, [secer_trace]), 
 	rpc:call(TraceNode, code, load_abs, ["./ebin/secer_trace"]), 
 	rpc:call(TraceNode, erlang, register, [tracer, spawn(TraceNode, secer_trace, init, [])]), 
-	
+
 	FileDir = filename:dirname(FilePath), 
 	ModName = list_to_atom(filename:basename(FilePath, ".erl")), 
 
@@ -691,7 +687,7 @@ node_instantiation(NodeName, FilePath, Binary, FunName, TO) ->
 				case filename:extension(F) of
 					".erl" ->
 						Module = list_to_atom(filename:basename(F, ".erl")), 
-						{ok, _, Bin} = compile:file(FileName, [binary]), 
+						{ok, _, Bin} = compile:file(FileName, [binary]),
 						rpc:call(TraceNode, code, load_binary, [Module, FileName, Bin]);
 					_ -> 
 						ok
@@ -700,6 +696,7 @@ node_instantiation(NodeName, FilePath, Binary, FunName, TO) ->
 			   Files), 
 	rpc:call(TraceNode, code, load_binary, [ModName, FilePath, Binary]),
 	PidNodeLoop = spawn(TraceNode, secer_trace, create_loop, [node(), ModName, FunName, TO]), 
+	rpc:call(TraceNode, erlang, unregister, [looper]), 
 	rpc:call(TraceNode, erlang, register, [looper, PidNodeLoop]), 
 	TraceNode.
 
@@ -1139,6 +1136,8 @@ poi_map(Poi) ->
 			{F, L, application, O};
 		{F, L, 'try', O} ->
 			{F, L, try_expr, O};
+		{F, L, lc, O} ->
+			{F, L, list_comp, O};
 		_ ->
 			Poi
 	end.

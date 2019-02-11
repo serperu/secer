@@ -38,7 +38,7 @@ parse_transform(Forms, _Options) ->
 	%LINE, TYPE, OC POIS 
 	%TODO: Cambiarlo por un lists:map()
 	LTOPois = [{catch lists:foldl(fun find_explicit_pois/2, POI, AnnAST), POI} || POI <- ExplicitPOIs], 
-
+	
 
 	RefMN = make_ref(),
 	cc_server ! {get,mod_name,RefMN,self()},
@@ -73,9 +73,12 @@ parse_transform(Forms, _Options) ->
 
 	cc_server ! {put,{id_poi_dict,dict:merge(fun(_, _, V2) -> V2 end, IdPoiDict, dict:from_list(OrderIdPoiList))}},
 
-	{_, POIForms}= lists:mapfoldl(fun instrument_poi/2, AnnAST, OrderIdPoiList), 
+	{_, POIForms} = lists:mapfoldl(fun instrument_poi/2, AnnAST, OrderIdPoiList), 
 
-	%[printers(F) || F <- POIForms],
+	{ok, FinalFile} = file:open("./cacafuti.erl", [write]), 
+	generate_final_code(POIForms, FinalFile), 
+
+	%[printer(F) || F <- POIForms],
 	[erl_syntax:revert(F) || F <- POIForms].
 
 
@@ -614,14 +617,10 @@ replace_match_pattern(Node, [{Type, N, M}|T]) ->
 
 	BlockExpr = case lists:member(PoiName, Bounded_vars) of
 		true ->	
-			SendSCExpr = build_send_expr(PoiId,NodeSc),
-							% erl_syntax:infix_expr(erl_syntax:atom("tracer"), erl_syntax:operator("!"), 
-							% erl_syntax:tuple([erl_syntax:atom(add), erl_syntax:integer(PoiId), NodeSc])), 
+			SendSCExpr = build_send_expr(PoiId,NodeSc,Node),
 			erl_syntax:block_expr([PmExpr, SendSCExpr, NewPattern]);
 		false ->
-			SendFvExpr = build_send_expr(PoiId,VarScFv),
-							% erl_syntax:infix_expr(erl_syntax:atom("tracer"), erl_syntax:operator("!"), 
-							% erl_syntax:tuple([erl_syntax:atom(add), erl_syntax:integer(PoiId), VarScFv])), 
+			SendFvExpr = build_send_expr(PoiId,VarScFv,Node),
 			erl_syntax:block_expr([PmExpr, SendFvExpr, NewPattern])
 	end, 
 	erl_syntax:match_expr(erl_syntax:match_expr_pattern(Node), BlockExpr).
@@ -669,9 +668,7 @@ add_neccessary_generator(Node, [{Type, N, M}|T], NewPattern) ->
 			[PoiAnn] = erl_syntax:get_ann(NodeSc), 
 			PoiId = PoiAnn#nodeinfo.id, 
 
-			SendSCExpr = build_send_expr(PoiId,NodeSc),
-							% erl_syntax:infix_expr(erl_syntax:atom("tracer"), erl_syntax:operator("!"), 
-							% erl_syntax:tuple([erl_syntax:atom(add), erl_syntax:integer(PoiId), NodeSc])), 
+			SendSCExpr = build_send_expr(PoiId,NodeSc,Node),
 			Expr_list_gen = erl_syntax:list([NewPattern]), 
 			Gen_Body = erl_syntax:block_expr([SendSCExpr, Expr_list_gen]), 
 
@@ -771,9 +768,7 @@ replace_guard(Node, Path, Clauses, Root_type) ->
 	[PoiAnn] = erl_syntax:get_ann(NodeSc), 
 	PoiId = PoiAnn#nodeinfo.id, 
 
-	SendSCExpr = build_send_expr(PoiId,NodeSc),
-					% erl_syntax:infix_expr(erl_syntax:atom("tracer"), erl_syntax:operator("!"), 
-					% 		erl_syntax:tuple([erl_syntax:atom(add), erl_syntax:integer(PoiId), NodeSc])), 
+	SendSCExpr = build_send_expr(PoiId,NodeSc,Node),
 	
 	Pattern = erl_syntax:clause_patterns(Node), 
 	Expr_case = generate_case_expression(Pattern, Clauses, Root_type), 
@@ -811,12 +806,8 @@ replace_clause(Node, [{Type, N, M}|T], Clauses, Root_type) ->
 
 	BlockExpr = case lists:member(PoiName, Bounded_vars) of
 		true ->	
-			SendFvExpr = build_send_expr(PoiId,VarScFv),
-							% erl_syntax:infix_expr(erl_syntax:atom("tracer"), erl_syntax:operator("!"), 
-							% erl_syntax:tuple([erl_syntax:atom(add), erl_syntax:integer(PoiId), VarScFv])), 
-			SendSCExpr = build_send_expr(PoiId,NodeSc),
-							% erl_syntax:infix_expr(erl_syntax:atom("tracer"), erl_syntax:operator("!"), 
-							% erl_syntax:tuple([erl_syntax:atom(add), erl_syntax:integer(PoiId), NodeSc])), 
+			SendFvExpr = build_send_expr(PoiId,VarScFv,Node),
+			SendSCExpr = build_send_expr(PoiId,NodeSc,Node),
 			Case_clause_equal = erl_syntax:clause([NodeSc], [], [SendFvExpr]), 
 			Case_clause_else = erl_syntax:clause([erl_syntax:underscore()], [], [SendSCExpr]), 
 			Expr_tracer_case = erl_syntax:case_expr(VarScFv, [Case_clause_equal, Case_clause_else]), 
@@ -824,9 +815,7 @@ replace_clause(Node, [{Type, N, M}|T], Clauses, Root_type) ->
 			Expr_clauses_case = generate_case_expression(NewPattern, Clauses, Root_type), 
 			erl_syntax:block_expr([Expr_tracer_case, Expr_clauses_case]);
 		_ ->
-			SendFvExpr = build_send_expr(PoiId,VarScFv),
-							% erl_syntax:infix_expr(erl_syntax:atom("tracer"), erl_syntax:operator("!"), 
-							% erl_syntax:tuple([erl_syntax:atom(add), erl_syntax:integer(PoiId), VarScFv])), 
+			SendFvExpr = build_send_expr(PoiId,VarScFv,Node),
 			Expr_case = generate_case_expression(NewPattern, Clauses, Root_type), 
 			erl_syntax:block_expr([SendFvExpr, Expr_case])
 	end, 
@@ -919,14 +908,13 @@ replace_expression(Node, [{_, N, M}|T]) ->
 	New_child = replacenth(M, Replaced_expression, Child), 
 	New_children = replacenth(N, New_child, Children), 
 	replace_node_with_anns(Node, New_children).
-	%erl_syntax:make_tree(erl_syntax:type(Node), New_children).
 
 replace_normal_expression(Elem, PoiId) ->
+
 	PatternFV = gen_free_var(), 
 	PmExpr = erl_syntax:match_expr(PatternFV, Elem), 
-	Expr_send = build_send_expr(PoiId,PatternFV),
-				% erl_syntax:infix_expr(erl_syntax:atom("tracer"), erl_syntax:operator("!"), 
-				%  erl_syntax:tuple([erl_syntax:atom(add), erl_syntax:integer(PoiId), PatternFV])), 
+	Expr_send = build_send_expr(PoiId,PatternFV,Elem),
+
 	erl_syntax:block_expr([PmExpr, Expr_send, PatternFV]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -935,22 +923,27 @@ replace_normal_expression(Elem, PoiId) ->
 replace_call_expression(Elem,PoiId) ->
 	FVRef = gen_free_var(),
 	FVCallee = gen_free_var(),
+
 	PList = erl_syntax:application_arguments(Elem),
 
 	Operator = erl_syntax:application_operator(Elem),
 
-	CalleeFun = case erl_syntax:type(Operator) of
+	{SentCalle, CalleeFun} = case erl_syntax:type(Operator) of
 		atom -> 
-			erl_syntax:implicit_fun(
+			{Operator,
+			 erl_syntax:implicit_fun(
 				Operator,
-				erl_syntax:integer(length(PList)));
+				erl_syntax:integer(length(PList)))
+			};
 		module_qualifier ->
-			erl_syntax:implicit_fun(
+			{FVCallee, 
+			 erl_syntax:implicit_fun(
 				erl_syntax:module_qualifier_argument(Operator),
 				erl_syntax:module_qualifier_body(Operator),
-				erl_syntax:integer(length(PList)));
+				erl_syntax:integer(length(PList)))};
 		_ ->
-			erl_syntax:application_operator(Elem)
+			{FVCallee,
+			 erl_syntax:application_operator(Elem)}
 	end,
 
 	FVCall = gen_free_var(),
@@ -971,7 +964,7 @@ replace_call_expression(Elem,PoiId) ->
 							erl_syntax:atom(add_i), 
 							erl_syntax:integer(PoiId), 
 							FVRef, 
-							FVCallee]))
+							SentCalle]))
 				],
 	% Parameters
 	{ParamFVList,Params} = get_param_instrumentation(PList, PoiId, FVRef),
@@ -983,15 +976,10 @@ replace_call_expression(Elem,PoiId) ->
 						FVCallee, 
 						lists:reverse(ParamFVList))),
 
-	CallSend = build_call_send_expr(PoiId, FVCall, FVRef),
-	% erl_syntax:infix_expr(erl_syntax:atom(tracer), erl_syntax:operator("!"), 
-	% 							erl_syntax:tuple([
-	% 									erl_syntax:atom(add_c), 
-	% 									erl_syntax:integer(PoiId), 
-	% 									FVRef, 
-	% 									FVCall])),
-
+	CallSend = build_call_send_expr(PoiId, FVCall, FVRef, Elem),
+	
 	erl_syntax:block_expr(RefCalle ++ Params ++ [FVCallMatch,CallSend,FVCall]).
+
 
 get_param_instrumentation(PList, PoiId, FVRef) ->
 	lists:foldl(
@@ -1015,24 +1003,33 @@ get_param_instrumentation(PList, PoiId, FVRef) ->
 %%%%%%%%%%%%%%%
 %% SEND EXPR %%
 %%%%%%%%%%%%%%%
-build_send_expr(PoiId,SentVar) ->
-	build_send_with_st(PoiId,SentVar).
+build_send_expr(PoiId, SentVar, Elem) ->
+	build_send_with_st(PoiId, SentVar, Elem).
 	%build_send_without_st(PoiId,SentVar).
 
-build_send_with_st(PoiId,SentVar) ->
-	TryExpression = build_stack_trace(),
+build_send_with_st(PoiId,SentVar,Elem) ->
+	TryExpression = build_stack_trace(Elem),
 	erl_syntax:infix_expr(erl_syntax:atom("tracer"), erl_syntax:operator("!"), 
 				 erl_syntax:tuple([erl_syntax:atom(add), erl_syntax:integer(PoiId), SentVar, TryExpression])).
+
+% build_send_expr(PoiId, SentVar) ->
+% 	build_send_with_st(PoiId, SentVar).
+% 	%build_send_without_st(PoiId,SentVar).
+
+% build_send_with_st(PoiId,SentVar) ->
+% 	TryExpression = build_stack_trace(),
+% 	erl_syntax:infix_expr(erl_syntax:atom("tracer"), erl_syntax:operator("!"), 
+% 				 erl_syntax:tuple([erl_syntax:atom(add), erl_syntax:integer(PoiId), SentVar, TryExpression])).
 
 build_send_without_st(PoiId,SentVar) ->
 	erl_syntax:infix_expr(erl_syntax:atom("tracer"), erl_syntax:operator("!"), 
 				 erl_syntax:tuple([erl_syntax:atom(add), erl_syntax:integer(PoiId), SentVar])).
 
-build_call_send_expr(PoiId,SentVar,Ref) ->
-	build_call_send_with_st(PoiId,SentVar,Ref).
+build_call_send_expr(PoiId, SentVar, Ref, Elem) ->
+	build_call_send_with_st(PoiId, SentVar, Ref, Elem).
 
-build_call_send_with_st(PoiId,SentVar,Ref) ->
-	TryExpression = build_stack_trace(),
+build_call_send_with_st(PoiId, SentVar, Ref, Elem) ->
+	TryExpression = build_stack_trace(Elem),
 	erl_syntax:infix_expr(erl_syntax:atom(tracer), erl_syntax:operator("!"), 
 								erl_syntax:tuple([
 										erl_syntax:atom(add_c), 
@@ -1049,14 +1046,35 @@ build_call_send_without_st(PoiId,SentVar,Ref) ->
 										Ref, 
 										SentVar])).
 
-build_stack_trace() ->
+% build_stack_trace() ->
+% 	erl_syntax:try_expr(
+% 		[
+% 			erl_syntax:application(
+% 				erl_syntax:module_qualifier(
+% 						erl_syntax:atom(erlang),
+% 						erl_syntax:atom(throw)),
+% 				[erl_syntax:integer(42)])
+% 		],
+% 		[
+% 			erl_syntax:clause(
+% 				[erl_syntax:integer(42)], 
+% 				none, 
+% 				[
+% 					erl_syntax:application(
+% 						erl_syntax:module_qualifier(
+% 								erl_syntax:atom(erlang),
+% 								erl_syntax:atom(get_stacktrace)),
+% 						[])
+% 				])
+% 		]).
+build_stack_trace(Elem) ->
 	erl_syntax:try_expr(
 		[
-			erl_syntax:application(
-				erl_syntax:module_qualifier(
-						erl_syntax:atom(erlang),
-						erl_syntax:atom(throw)),
-				[erl_syntax:integer(42)])
+			erl_syntax:set_pos(erl_syntax:application(
+					erl_syntax:module_qualifier(
+							erl_syntax:atom(erlang),
+							erl_syntax:atom(throw)),
+					[erl_syntax:integer(42)]),erl_syntax:get_pos(Elem))
 		],
 		[
 			erl_syntax:clause(

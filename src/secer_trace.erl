@@ -22,13 +22,14 @@ tracer({Stack,Trace}) ->
 			AI = dict:from_list([{ca, CalleeArgs}]), 
 			tracer({NStack,[{POI, V, AI} | Trace]});
 		{add_c, POI, Ref, V, ST} -> 
+			%printer(ST),
 			{CalleeArgs, NStack} = remove_same_ref(Ref, Stack),
 			AI = dict:from_list([{ca, CalleeArgs},{st, lists:droplast(ST)}]),
 			%printer({NStack,[{POI, V, AI} | Trace]}),
 			tracer({NStack,[{POI, V, AI} | Trace]});
 		{add, POI, V, ST} -> 
 			%printer({Stack,[{POI, V, dict:from_list([{st,lists:droplast(ST)}])} | Trace]}),
-			tracer({Stack, [{POI, V, dict:from_list([{st,lists:droplast(ST)}])} | Trace]});
+			tracer({Stack, [{POI, V, dict:from_list([{st,lists:droplast(tl(ST))}])} | Trace]});
 		{add, POI, V} ->
 			tracer({Stack, [{POI, V, none} | Trace]});
 		{get_results, Ref, Pid} ->
