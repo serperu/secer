@@ -6,7 +6,7 @@
 	git submodule init && git submodule update && 
 	git submodule foreach make && 
 	autoconf && 
-	./configure --with-protoc=$1/cuter/lib/protoc-3.2.0/bin/protoc && 
+	./configure && 
 	make depend && 
 	make &&
 	rm -f ../config/nocuter.txt &&
