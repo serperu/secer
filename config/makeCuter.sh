@@ -2,7 +2,7 @@
 
 {
 	cd cuter &&
-	#./fetch_protoc.sh && 
+	./fetch_protoc.sh && 
 	git submodule init && git submodule update && 
 	git submodule foreach make && 
 	autoconf && 
