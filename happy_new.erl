@@ -4,7 +4,7 @@
 is_happy(X, XS) ->
 	if
 		X == 1 -> true;
-		X < 1 -> false;
+		X < 10 -> false;
 		true ->
 			case member(X, XS) of
 				true -> false;

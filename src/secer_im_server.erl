@@ -6,13 +6,14 @@
 		timeouted_trace = dict:new(), 
 
 		same_trace = dict:new(), 
-		different_trace = dict:new(), 	%KEY: Input
-		trace_dict = dict:new(), 	  	%KEY: Trace
+		different_trace = dict:new(), 	% KEY: Input
+		trace_dict = dict:new(), 	  	% KEY: Trace
 
 		cfun,
 
 		cfun_changed = false, 			% FLAG to identify external cfuns. 
 										% PENDING: Alternative to delete this flag
+		input_dict = dict:new(),		% KEY: Input
 
 		id_relations, 
 		poi_relations, 
@@ -48,6 +49,46 @@ loop(State) ->
 					cfun_changed = true
 				}, 
 			loop(NewState);
+
+	%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+	%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 1 TRACE %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+	%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+		{contained_input, Input, Ref, Pid} ->
+			case dict:is_key(Input, State#state.input_dict) of
+				false ->
+					Pid ! {Ref, false};
+				_ -> 
+					Pid ! {Ref, true}
+			end, 		
+			loop(State);
+		{contained_trace, Trace, Ref, Pid} ->
+			case dict:is_key(Trace, State#state.trace_dict) of
+				false ->
+					Pid ! {Ref, false};
+				_ -> 
+					Pid ! {Ref, true}
+			end, 		
+			loop(State);
+		{add, Input, Trace} ->
+			NewState = State#state
+				{
+					trace_dict =
+						dict:store(
+							Trace, 
+							[], 
+							State#state.trace_dict),
+					input_dict =
+						dict:store(
+							Input,
+							Trace,
+							State#state.input_dict)	
+				}, 
+			loop(NewState);
+			{get_suite, Pid} -> 
+				Pid ! {State#state.input_dict};		
+	%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+	%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 2 TRACES %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+	%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% PREVIOSLY GENERATED %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -151,7 +192,6 @@ loop(State) ->
 		{get_results, Pid} ->
 			Pid ! {State#state.same_trace, State#state.different_trace, 
 				 	State#state.id_poi_dic, State#state.timeouted_trace};
-
 		Other ->
 			erlang:exit(
 				self(), 

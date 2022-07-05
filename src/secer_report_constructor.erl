@@ -1,10 +1,45 @@
 -module(secer_report_constructor).
--export([report/4]).
+-export([report/4,report_suite/3]).
 
-report(Same, Different, _Timeouted, ExecFun) ->
-	%printer(dict:fetch_keys(Same)),
-	%printer(dict:fetch_keys(Different)),
-		
+-define(SUITE_PATH, "./suite/").
+
+report_suite(InputTraceDict, Poi, ExecFun) ->
+	% File = atom_to_list(element(1, Poi)), 
+	% ModuleName = list_to_atom(filename:basename(File, ".erl")), 
+	{FunName, Arity} = get_function_name(ExecFun), 
+	filelib:ensure_dir(?SUITE_PATH),
+	try 
+		{ok, Fd} = file:open(?SUITE_PATH++"suite.txt", [append]),
+		io:format(Fd,"\n*** Generated tests for Function ~p POI ~p ***\n\n",[ExecFun,Poi]),
+		print_test_cases(Fd,InputTraceDict,FunName),
+		file:close(Fd)
+	catch 
+		_:_ -> 
+			io:format("Error writing suite test cases")
+	end,
+	io:format("Suite successfully built in ~s: ~p different test cases computed\n",
+		[?SUITE_PATH++"suite.txt",dict:size(InputTraceDict)]).
+
+print_test_cases(Fd,Dict,FunName) ->
+	dict:map(fun(I, T) ->
+				InputString = lists:flatten(io_lib:format("~w", [I])), 
+				FinalInput = string:substr(InputString, 2, length(InputString)-2), 
+				Trace = get_trace_value(T),
+				io:format(Fd,"~s(~s) => ~w\n\n",[FunName,FinalInput,Trace])
+			end,
+			Dict).
+
+get_trace_value(Trace) ->
+	VEF = secer_api:vef_value_only(),
+	lists:foldr(
+ 	fun(T,Acc) ->
+		[VEF(T)|Acc]
+	end,
+	[],
+	Trace).
+
+
+report(Same, Different, _Timeouted, ExecFun) ->		
 	{FunName, Arity} = get_function_name(ExecFun), 
 	Errors = error_classifier(Different), 
 

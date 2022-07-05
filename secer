@@ -2,8 +2,102 @@
 %% -*- erlang -*-
 %%! -sname secer_node -setcookie secer_cookie -pa ebin cuter/ebin cuter/lib/proper/ebin
 
+% printer(String) -> 
+% 	io:format("~p\n",[String]).
+
+compile_charge_module(Call) -> 
+	case lists:member($:, Call) of
+		true ->
+			[Module | _] = string:tokens(Call, ":"), 
+
+			% Module inside dir:
+			FilePath = filename:dirname(Module),
+			ModuleName = filename:basename(Module),
+
+			compile:file(Module++".erl", [{outdir, "./tmp/"}]), 
+			code:purge(list_to_atom(ModuleName)), 
+		 	code:load_abs("./tmp/"++ModuleName),
+		 	FilePath;
+		false ->
+			""
+	end.
+
 main([X]) when X == "-h" orelse X == "--help" ->
 	io:format("~s\n", [help_message()]);
+
+main(["-suite", Poi, "-funs", FunList, "-to", Time]) -> 
+	IsolatedPoiCall = filename:basename(Poi),
+	PoiFun = IsolatedPoiCall ++ ".",
+	PoiPath = compile_charge_module(Poi),
+
+	CurrentPath = filename:absname("."),
+	
+	c:cd(PoiPath),
+
+	{ok, PoiTokens, _} = erl_scan:string(PoiFun), 
+	{ok, PoiAbsForm} = erl_parse:parse_exprs(PoiTokens), 
+	{value, PoiValue, _} = erl_eval:exprs(PoiAbsForm, []),
+
+	c:cd(CurrentPath),
+
+	IsolatedFunCall = filename:basename(FunList),
+	ErlangFun = IsolatedFunCall ++ ".",
+	FunPath = compile_charge_module(FunList),
+
+	c:cd(FunPath),
+
+	FunctionFuns = case lists:member($:, FunList) of
+		true ->
+			{ok, FunTokens, _} = erl_scan:string(ErlangFun), 
+			{ok, FunAbsForm} = erl_parse:parse_exprs(FunTokens), 
+			{value, Funs, _} = erl_eval:exprs(FunAbsForm, []), 
+			Funs;
+		false ->
+			FunList
+	end, 
+	c:cd(CurrentPath),
+
+	InputFuns = string:tokens(FunctionFuns, ", []"), 
+	
+% printer(PoiValue),
+% printer(InputFuns),
+
+	Timeout = try
+		case tuple_size(PoiValue) of 
+			4 -> 4;
+			_ -> throw(nan)
+		end,
+		list_to_integer(Time)
+	catch 
+		_:_ -> 
+			{-1, -1}
+	end, 
+	case Timeout of 
+		{-1, -1} -> 
+			usage(3);
+		_ -> 
+			[secer:run_suite(PoiValue, string:strip(IFun, both), Timeout)|| IFun <- InputFuns]
+	end;
+
+main(["-suite", Poi, "-to", Time]) -> 
+	Res = try  
+		case tuple_size(Poi) of 
+			4 -> 4;
+			_ -> throw(nan)
+		end,
+		list_to_integer(Time)
+	catch 
+		_:_ -> 
+			{-1, -1}
+	end, 
+	case Res of 
+		{-1, -1} -> 
+			usage(3);
+		_ -> 
+			{File,_,_,_} = Poi,
+			InputFuns = secer_input_gen:get_exports(File), 
+			[secer:run_suite(Poi, IFun, Time)|| IFun <- InputFuns]
+	end;
 
 main(["-pois", Pois, "-funs", FunList, "-to", Time, "-cfun", CFun]) ->
 	PoisFun = Pois++".", 
@@ -13,7 +107,7 @@ main(["-pois", Pois, "-funs", FunList, "-to", Time, "-cfun", CFun]) ->
 			[Module | _] = string:tokens(Pois, ":"), 
 			compile:file(Module++".erl", [{outdir, "./tmp/"}]), 
 			code:purge(list_to_atom(Module)), 
-		 	code:load_abs(Module);
+		 	code:load_abs("./tmp/"++Module);
 		false ->
 			ok
 	end, 
@@ -748,8 +842,13 @@ usage(1) ->
             [-f file2.erl -li line2 -var variable2 [-oc occurrence2]]          
              -funs input_function -to timeout\n"), 
     halt(1);
+
 usage(2) ->
 	io:format("Usage: secer -f file.erl -li line -var variable [-oc occurrence] [-funs input_functions] -to timeout\n"), 
+	halt(1);
+
+usage(3) ->
+	io:format("Usage: secer -suite POI -funs input_functions -to timeout\n"), 
 	halt(1).
 
 secer_functions() ->

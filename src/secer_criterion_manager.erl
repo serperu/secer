@@ -5,81 +5,80 @@
 -record(nodeinfo, {id, env, bound, free}).
 
 parse_transform(Forms, _Options) ->
-	RefLI = make_ref(),
-	cc_server ! {get,last_id,RefLI,self()},
-	LastId = 
-		receive
-			{RefLI,CC_LI} -> CC_LI
-		end,
-	{AnnAST, NewLastId} = lists:mapfoldl(fun annotate/2, LastId, Forms),
+	try
+		RefLI = make_ref(),
+		cc_server ! {get,last_id,RefLI,self()},
+		LastId = 
+			receive
+				{RefLI,CC_LI} -> CC_LI
+			end,
+		{AnnAST, NewLastId} = lists:mapfoldl(fun annotate/2, LastId, Forms),
+		cc_server ! {put,{last_id,NewLastId}},
+		
+		RefPL = make_ref(),
+		cc_server ! {get,poi_list,RefPL,self()},
+		PoiList = 
+			receive
+				{RefPL,CC_PL} -> CC_PL
+			end,
+		{LineColPOIs, ExplicitPOIs} = 
+			lists:foldl(
+					fun(P, {LCP, EP}) ->
+						case P of
+							{_, {_, _}, {_, _}} ->
+								{[P|LCP], EP};
+							_ ->
+								{LCP, [P|EP]}
+						end
+					end, 	
+					{[], []}, 
+					PoiList), 
 
-	cc_server ! {put,{last_id,NewLastId}},
-	
-	RefPL = make_ref(),
-	cc_server ! {get,poi_list,RefPL,self()},
-	PoiList = 
-		receive
-			{RefPL,CC_PL} -> CC_PL
-		end,
+		%LINE, TYPE, OC POIS 
+		%TODO: Cambiarlo por un lists:map()
+		LTOPois = [{catch lists:foldl(fun find_explicit_pois/2, POI, AnnAST), POI} || POI <- ExplicitPOIs], 
+		
 
-	{LineColPOIs, ExplicitPOIs} = 
-		lists:foldl(
-				fun(P, {LCP, EP}) ->
-					case P of
-						{_, {_, _}, {_, _}} ->
-							{[P|LCP], EP};
-						_ ->
-							{LCP, [P|EP]}
-					end
-				end, 	
-				{[], []}, 
-				PoiList), 
+		RefMN = make_ref(),
+		cc_server ! {get,mod_name,RefMN,self()},
+		ModuleName = 
+			receive
+				{RefMN,CC_MN} -> CC_MN
+			end,
+		%LINE COL POIS 
+		%TODO: Cambiarlo por un lists:map()
+		LCPois = [
+			begin 
+				{_, Program} = read_expression(POI), 
+				{_, {SLine, _}, _} = POI, 
+				{ok, ChangedFd} = file:open(?TMP_PATH++atom_to_list(ModuleName)++".erl", [write, {encoding, unicode}]), 
+				io:format(ChangedFd, "~s", [Program]), 
+				{ok, AST0} = epp:parse_file(?TMP_PATH++atom_to_list(ModuleName)++".erl", [], []), 
+				{{FunName, FunArity}, Path} = (catch lists:foldl(fun find_line_col_pois/2, {SLine, poi_ref}, AST0)), 
+				{get_matching_id(FunName, FunArity, Path, AnnAST), POI} 
+			end || POI <- LineColPOIs], 
 
-	%LINE, TYPE, OC POIS 
-	%TODO: Cambiarlo por un lists:map()
-	LTOPois = [{catch lists:foldl(fun find_explicit_pois/2, POI, AnnAST), POI} || POI <- ExplicitPOIs], 
-	
+		List = LTOPois ++ LCPois, 
+		
+		OrderIdPoiList = lists:sort(fun({A, _}, {B, _}) -> A =< B end, List), 
+		
+		RefIPD = make_ref(),
+		cc_server ! {get,id_poi_dict,RefIPD,self()},
+		IdPoiDict =  
+			receive
+				{RefIPD,CC_IPD} -> CC_IPD
+			end,
+		cc_server ! {put,{id_poi_dict,dict:merge(fun(_, _, V2) -> V2 end, IdPoiDict, dict:from_list(OrderIdPoiList))}},
+		{_, POIForms} = lists:mapfoldl(fun instrument_poi/2, AnnAST, OrderIdPoiList), 
+%printer("Generando codigo instrumentado en cacafuti.txt"),
+%		{ok, FinalFile} = file:open("./suite/cacafuti.erl", [write]), 
+%		generate_final_code(POIForms, FinalFile), 
 
-	RefMN = make_ref(),
-	cc_server ! {get,mod_name,RefMN,self()},
-	ModuleName = 
-		receive
-			{RefMN,CC_MN} -> CC_MN
-		end,
-
-	%LINE COL POIS 
-	%TODO: Cambiarlo por un lists:map()
-	LCPois = [
-		begin 
-			{_, Program} = read_expression(POI), 
-			{_, {SLine, _}, _} = POI, 
-			{ok, ChangedFd} = file:open(?TMP_PATH++atom_to_list(ModuleName)++".erl", [write, {encoding, unicode}]), 
-			io:format(ChangedFd, "~s", [Program]), 
-			{ok, AST0} = epp:parse_file(?TMP_PATH++atom_to_list(ModuleName)++".erl", [], []), 
-			{{FunName, FunArity}, Path} = (catch lists:foldl(fun find_line_col_pois/2, {SLine, poi_ref}, AST0)), 
-			{get_matching_id(FunName, FunArity, Path, AnnAST), POI} 
-		end || POI <- LineColPOIs], 
-
-	List = LTOPois ++ LCPois, 
-	
-	OrderIdPoiList = lists:sort(fun({A, _}, {B, _}) -> A =< B end, List), 
-	
-	RefIPD = make_ref(),
-	cc_server ! {get,id_poi_dict,RefIPD,self()},
-	IdPoiDict =  
-		receive
-			{RefIPD,CC_IPD} -> CC_IPD
-		end,
-
-	cc_server ! {put,{id_poi_dict,dict:merge(fun(_, _, V2) -> V2 end, IdPoiDict, dict:from_list(OrderIdPoiList))}},
-
-	{_, POIForms} = lists:mapfoldl(fun instrument_poi/2, AnnAST, OrderIdPoiList), 
-
-	{ok, FinalFile} = file:open("./cacafuti.erl", [write]), 
-	generate_final_code(POIForms, FinalFile), 
-
-	%[printer(F) || F <- POIForms],
-	[erl_syntax:revert(F) || F <- POIForms].
+		%[printer(F) || F <- POIForms],
+		[erl_syntax:revert(F) || F <- POIForms]
+	catch E:R ->
+		printer({E,R})
+	end.
 
 
 %%%%%%%%%%%%%%%%%%%%%
@@ -904,13 +903,12 @@ replace_expression(Node, [{_, N, M}|T]) ->
 		_ ->
 			replace_expression(Elem, T)
 	end, 
-	
+
 	New_child = replacenth(M, Replaced_expression, Child), 
 	New_children = replacenth(N, New_child, Children), 
 	replace_node_with_anns(Node, New_children).
 
 replace_normal_expression(Elem, PoiId) ->
-
 	PatternFV = gen_free_var(), 
 	PmExpr = erl_syntax:match_expr(PatternFV, Elem), 
 	Expr_send = build_send_expr(PoiId,PatternFV,Elem),
@@ -1068,6 +1066,7 @@ build_call_send_without_st(PoiId,SentVar,Ref) ->
 % 				])
 % 		]).
 build_stack_trace(Elem) ->
+	StackVar = gen_free_var(),
 	erl_syntax:try_expr(
 		[
 			erl_syntax:set_pos(erl_syntax:application(
@@ -1078,14 +1077,13 @@ build_stack_trace(Elem) ->
 		],
 		[
 			erl_syntax:clause(
-				[erl_syntax:integer(42)], 
+				[erl_syntax:class_qualifier(
+					erl_syntax:underscore(), 
+					erl_syntax:integer(42), 
+					StackVar)],
 				none, 
 				[
-					erl_syntax:application(
-						erl_syntax:module_qualifier(
-								erl_syntax:atom(erlang),
-								erl_syntax:atom(get_stacktrace)),
-						[])
+					StackVar
 				])
 		]).
 

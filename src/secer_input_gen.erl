@@ -1,8 +1,112 @@
 -module(secer_input_gen).
--export([main/4, get_exports/1]).
+-export([main/4, get_exports/1, main_suite/3]).
 
 -define(TMP_PATH, "./tmp/").
 
+
+main_suite(Poi, ExecFun, Time) ->
+	try 
+		register(cuterIn, spawn(secer_trace, init, [])), 
+		register(var_gen, spawn(secer_fv_server, init, [])), 
+		register(cc_server, spawn(secer_cc_server, init, [])), 
+
+		File = atom_to_list(element(1, Poi)), 
+		ResComp = compile:file(File, [debug_info, {outdir, ?TMP_PATH}]), 
+		ModuleName = list_to_atom(filename:basename(File, ".erl")), 
+
+		case ResComp of
+			error ->
+				case filelib:find_file(".",File) of
+					{error,_} -> 
+						io:format("Module ~p cannot be found in the given directory\n",[ModuleName]);
+					{ok, _} ->
+						io:format("Module ~p couldn't be compiled due to syntax errors\n", [ModuleName])
+				end,
+				secer ! die, 
+				exit(0);
+			_ -> ok
+		end, 
+
+		{FunName, Arity} = divide_function(ExecFun), 
+		case Arity of
+			0 ->
+				Binary = instrument_code(Poi,File), 
+				cc_server ! die, 
+				Node = node_instantiation("secer_trace_suite", File, Binary, FunName, Time*1000 div 3), 
+
+				execute_input(Node, []), 
+				secer ! continue;
+			_ ->
+				% PART 1: GENERATE CUTER INPUTS
+				{ParamClauses, TypeDicts} = analyze_types(File, FunName, Arity), 
+				TimeOut = (Time*1000) div 3, 
+				% DOES THIS WORK WHEN CUTER RETURNS MORE THAN 1 INPUT?
+				%[Inputs] = execute_cuter(ModuleName, FunName, ParamClauses, TypeDicts, TimeOut), 
+				Inputs = execute_cuter(ModuleName, FunName, ParamClauses, TypeDicts, TimeOut), 
+
+				% PART 2: EXECUTE CUTER AND GENERATE RANDOM
+				Binary = instrument_code(Poi,File), 
+				cc_server ! die, 
+
+				Node = node_instantiation("secer_trace_suite", File, Binary, FunName, Time*1000 div 3), 
+				{ok, Fd} = file:open(?TMP_PATH++"cuter.txt", [write]), 
+				Self = self(), 
+				Ref = make_ref(), 
+
+				Queue = lists:foldl(
+					fun(I, L) ->
+						RefEx = make_ref(), 
+						Trace = execute_input(Node, I), 
+
+						input_manager ! {contained_trace, Trace, RefEx, self()}, 
+						receive
+							{RefEx, true} ->
+								{Prior,Last} = L,
+								{Prior,[I|Last]};
+							{RefEx, false} ->
+								{Prior,Last} = L,
+								case Trace of
+									[] -> {Prior, [I|Last]};
+									_ -> {[I|Prior],Last}
+								end
+						end
+					end, 
+					{[],[]}, 
+					Inputs), 
+				Input = 
+					case Queue of
+						{[PH|_], _} ->
+							PH;
+						{[], [LH|_]} ->
+							LH;
+						_ ->
+							[]
+					end, 
+				case Input of
+					[] ->
+						gen_random_inputs(Node, ParamClauses, TypeDicts, 0);
+					_ ->
+						{Clause, Dic} = identify_clause_input(ParamClauses, TypeDicts, Input), 
+						validate_input(Node, Queue, Clause, Dic), 
+						gen_random_inputs(Node, ParamClauses, TypeDicts, 0)
+				end
+		end
+	catch 
+		E:R ->
+			{E, R}
+	after
+		case whereis(cuterIn) of
+			undefined -> 
+				ok;
+			Pid -> 
+				unregister(cuterIn)
+		end
+	end.
+
+
+%%%%%%%%%%%%%%%%%
+% INPUT 2 FILES %
+%%%%%%%%%%%%%%%%%
 main(PoisRels, ExecFun, Time, CConf) ->
 	try 
 		register(cuterIn, spawn(secer_trace, init, [])), 
@@ -155,6 +259,21 @@ analyze_types(FileName, FunName, Arity) ->
 %%%%%%%%%%%%%%%%%%%%%
 %%%% COMMON PART %%%%
 %%%%%%%%%%%%%%%%%%%%%
+
+execute_cuter(ModuleName, FunName, ParamClauses, Dicts, TimeOut) ->
+	Params = lists:nth(rand:uniform(length(ParamClauses)), ParamClauses), 
+	{ok, Dic} = dict:find(Params, Dicts), 
+
+	Input = (catch generate_instance({Dic, Params})), 
+	case file:open("./config/nocuter.txt", [read]) of
+		{ok, _} ->
+			%printer("without cuter"), 
+			[Input];
+		{error, _} ->
+			%printer("with cuter"), 
+			CuterInputs = get_cuter_inputs(ModuleName, FunName, Input, TimeOut), 
+			[Input|CuterInputs]
+	end.
 
 execute_cuter(ModuleName1, ModuleName2, FunName, ParamClauses, Dicts, TimeOut) ->
 	Params = lists:nth(rand:uniform(length(ParamClauses)), ParamClauses), 
@@ -531,6 +650,43 @@ is_variable(N) ->
 			end
 	end.
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% EXECUTE CUTER SINGLE PROGRAM %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+get_cuter_inputs(ModuleName, FunName, Input, TimeOut) ->
+	Self = self(), 
+	Ref = make_ref(), 
+	{ok, Fd} = file:open(?TMP_PATH++"cuter.txt", [write]), 
+	register(cuterProcess, spawn(
+		fun() ->
+			group_leader(Fd, self()), 
+			catch cuter:run(ModuleName, FunName, Input, 25, [{number_of_pollers, 1}, {number_of_solvers, 1}]),
+			Self ! {finish, Ref}
+		end)), 
+	Result = receive
+		{finish, Ref} ->
+			RefC = make_ref(), 
+			cuterIn ! {get_results, RefC, Self}, 
+			cuterIn ! exit, 
+			receive
+				{RefC, Inputs} ->
+					Inputs
+			end
+	after TimeOut * 2000 -> 
+			timer:exit_after(0, cuterProcess2, kill), 
+			os:cmd("rm -Rf ./temp"), 
+			RefCut = make_ref(), 
+			cuterIn ! {get_results, RefCut, Self}, 
+			receive
+				{RefCut, []} ->	
+					[];
+				{RefCut, Inputs} ->
+					Inputs
+			end
+	end, 
+	file:close(Fd), 
+	Result.
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % EXECUTE CUTER AND GET THE GENERATED INPUTS %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -589,6 +745,19 @@ remove_duplicated(List) ->
 %%%%%%%%%%%% PART 2: INSTRUMENT THE CODE AND RANDOM GENERATION WITH PROPER  %%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+instrument_code(Poi, File) ->
+	NewPoi = poi_map(Poi), 
+	try		
+		cc_server ! {put, {last_id, 1}}, 
+		instrument_version(File, [NewPoi]) 
+	catch 
+		E:R ->
+			{E, R}
+	after
+		unregister(var_gen)
+	end.
+
+
 instrument_code(PoisRels, FileOld, FileNew, CConf) ->
 	NewPoiList = poi_transformation(PoisRels), 
 	{PoiListOld, PoiListNew} = divide_poi_list(NewPoiList), 
@@ -611,7 +780,7 @@ instrument_version(File, PoiList) ->
     	[{parse_transform, secer_criterion_manager}, binary], 
 
 	cc_server ! {put, {poi_list, PoiList}}, 
-	{ok, Forms} = epp:parse_file(File, [], []), 
+	{ok, Forms} = epp:parse_file(File, [], []),
 	ModuleName = list_to_atom(filename:basename(File, ".erl")), 
 	cc_server ! {put, {mod_name, ModuleName}}, 
 	{ok, _, Binary} = compile:forms(Forms, CompileOpts), 
@@ -701,6 +870,19 @@ node_instantiation(NodeName, FilePath, Binary, FunName, TO) ->
 	TraceNode.
 
 %	code:load_binary(ModName,FilePath,Binary) % FOR SEQUENTIAL EXECUTION
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% EXECUTE AN INPUT WITH TRACE IN A SINGLE NODE %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+execute_input(Node, Input) ->
+	Ref = make_ref(), 
+	{looper, Node} ! {Ref, Input}, 
+	{Ref,Trace}	= receive
+		{R,T} -> {R,T}
+	end,
+
+	input_manager ! {add, Input, Trace}, 
+	Trace.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % EXECUTE AN INPUT WITH TRACE %
@@ -838,10 +1020,68 @@ execution_waiting_loop(Counter, RefOld, RefNew, L) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%% RANDOM GENERATION %%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%   GEN INPUTS FOR THE RANDOM PART (1 NODE)  %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+gen_random_inputs(Node, ParamClauses, Dicts, 10000) ->
+	NewDicts = dict:map(
+		fun(_, V) ->
+			increase_integer_types(V)
+		end, 
+		Dicts), 
+	gen_random_inputs(Node, ParamClauses, NewDicts, 0);
+gen_random_inputs(Node, ParamClauses, Dicts, N) ->
+	Params = lists:nth(rand:uniform(length(ParamClauses)), ParamClauses), 
+	{ok, Dic} = dict:find(Params, Dicts), 	
+	Input = (catch generate_instance({Dic, Params})), 
+	Res = validate_input(Node, {[Input], []}, Params, Dic), 
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%   GEN INPUTS FOR THE RANDOM PART   %
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+	case Res of
+		X when X == repeated_input orelse X == repeated_trace ->
+			gen_random_inputs(Node, ParamClauses, Dicts, N+1);
+		_ ->
+			gen_random_inputs(Node, ParamClauses, Dicts, 0)
+	end.
+validate_input(Node, Queue, Params, Dic) ->
+	{Input, {Prior, Last}} = case Queue of
+		{[], []} ->
+			{finish, {[], []}};
+		{[HP|TP], L} ->
+			{HP, {TP, L}};
+		{[], [HL|TL]} ->
+			{HL, {[], TL}}
+	end, 
+	case Input of
+		finish ->
+			finish;
+		_ ->
+			RefC = make_ref(), 
+			input_manager ! {contained_input, Input, RefC, self()}, 
+			receive
+				{RefC, true} ->
+					repeated_input;
+				{RefC, false} ->
+					Trace = execute_input(Node, Input), 
+					RefEx = make_ref(), 
+					input_manager ! {contained_trace, Trace, RefEx, self()}, 
+					receive
+						{RefEx, true} ->
+							repeated_trace;
+						{RefEx, false} ->
+							MutatingInputs = gen_guided_input(Input, Params, Dic), 
+							NewQueue = case Trace of
+								[] ->
+									{Prior, Last ++ MutatingInputs};
+								_ ->
+									{Prior ++ MutatingInputs, Last}
+							end, 
+							validate_input(Node, NewQueue, Params, Dic)
+					end
+			end
+	end.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%   GEN INPUTS FOR THE RANDOM PART (2 NODES)  %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 gen_random_inputs(NodeOld, NodeNew, ParamClauses, Dicts, 10000) ->
 	NewDicts = dict:map(
 		fun(_, V) ->
@@ -1299,4 +1539,3 @@ printList([H|T]) ->
 % 	Input = (catch generate_instance({Dic, Params})), 
 % 	execute_input(NodeOld, NodeNew, Input), 
 % 	gen_random_proper_inputs(NodeOld, NodeNew, ParamClauses, Dicts).
-

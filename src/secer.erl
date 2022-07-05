@@ -1,10 +1,77 @@
 -module(secer).
--export([run/4,run/5,run/6]).
+-export([run/4,run/5,run/6,run_suite/3]).
 % PoisRels::[{POIOld,POINew}] 
 % CompareFun::fun cf/2
 % Fun::"funName/Arity" (String)
 % Timeout::integer
 
+%%%%%%%%%%%%%%%%%%%%
+%%%% ONLY SUITE %%%%
+%%%%%%%%%%%%%%%%%%%%
+run_suite(Poi,ExecFun,Timeout) -> 
+	try 
+		printS("Generating secer -suite inputs..."),
+		case whereis(secer) of
+		    undefined ->
+		        register(secer, self());
+		    _ ->
+		        already_started
+		end,
+		% START SUITE_GEN NODE
+		SuiteNode = slave:start(list_to_atom(net_adm:localhost()), 
+            							secer_trace_suite, 
+            							"-setcookie secer_cookie"),
+		% 
+		register(input_manager,spawn(secer_im_server,init,[])),
+		register(input_gen,spawn(secer_input_gen,main_suite,[Poi,ExecFun,Timeout])),
+		receive
+			die -> 
+				exit(0);
+			continue ->
+				ok
+		after Timeout * 1000 ->
+				ok
+		end,
+		input_manager ! {get_suite,self()},
+		receive
+			{InputDict} -> 
+			printS("Building test suite..."),
+%dict:map(fun(K,V) -> io:format("Input-Trace: ~p => ~p\n",[K,V]) end,InputDict),
+				secer_report_constructor:report_suite(InputDict,Poi,ExecFun);
+			_ ->
+
+				printer(error),
+				error
+		end,
+		slave:stop(SuiteNode) % REVISAR SI ESTO DA ERROR
+	catch 
+		E:R -> 
+			errorCatch
+	after
+		case {whereis(input_gen),whereis(input_manager)} of
+			{undefined,undefined} ->
+				ok;
+			{undefined,Pid} ->
+				unregister(input_manager),
+				timer:exit_after(0,Pid,kill);
+			{Pid,undefined} ->
+				unregister(input_gen),
+				timer:exit_after(0,Pid,kill);
+			{Pid1,Pid2} ->
+				unregister(input_manager),
+				unregister(input_gen),
+				timer:exit_after(0,Pid1,kill),
+				timer:exit_after(0,Pid2,kill)
+		end,
+		clean_files()
+	end.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%% RUN SECER COMPARISON %%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 run(PoisRels,ExecFun,Timeout,CompareFun) -> 
 	try 
 		case whereis(secer) of
@@ -67,6 +134,7 @@ run(PoisRels,ExecFun,Timeout,CompareFun) ->
 	end.
 
 printer(X) -> io:format("~p\n",[X]).
+printS(X) -> io:format("~s\n",[X]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% SILENT EXECUTION %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
