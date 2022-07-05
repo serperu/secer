@@ -5,19 +5,24 @@
 % printer(String) -> 
 % 	io:format("~p\n",[String]).
 
+create_tmp_dir() ->
+	filelib:ensure_dir("./tmp/").
+
+remove_tmp_dir() ->
+	file:del_dir_r("./tmp/").
+
 compile_charge_module(Call) -> 
 	case lists:member($:, Call) of
 		true ->
 			[Module | _] = string:tokens(Call, ":"), 
 
 			% Module inside dir:
-			FilePath = filename:dirname(Module),
+			_FilePath = filename:dirname(Module),
 			ModuleName = filename:basename(Module),
 
 			compile:file(Module++".erl", [{outdir, "./tmp/"}]), 
 			code:purge(list_to_atom(ModuleName)), 
-		 	code:load_abs("./tmp/"++ModuleName),
-		 	FilePath;
+		 	code:load_abs("./tmp/"++ModuleName);
 		false ->
 			""
 	end.
@@ -26,25 +31,23 @@ main([X]) when X == "-h" orelse X == "--help" ->
 	io:format("~s\n", [help_message()]);
 
 main(["-suite", Poi, "-funs", FunList, "-to", Time]) -> 
-	IsolatedPoiCall = filename:basename(Poi),
-	PoiFun = IsolatedPoiCall ++ ".",
-	PoiPath = compile_charge_module(Poi),
+	SecerScriptPath = filename:dirname(escript:script_name()) ++ "/",
+	code:add_pathsz([SecerScriptPath++"ebin",
+					 SecerScriptPath++"cuter/ebin", 
+					 SecerScriptPath++"cuter/lib/proper/ebin"]),
+	create_tmp_dir(),
 
-	CurrentPath = filename:absname("."),
-	
-	c:cd(PoiPath),
+	PoiFun = Poi ++ ".",
+	compile_charge_module(Poi),
+
 
 	{ok, PoiTokens, _} = erl_scan:string(PoiFun), 
 	{ok, PoiAbsForm} = erl_parse:parse_exprs(PoiTokens), 
 	{value, PoiValue, _} = erl_eval:exprs(PoiAbsForm, []),
 
-	c:cd(CurrentPath),
 
-	IsolatedFunCall = filename:basename(FunList),
-	ErlangFun = IsolatedFunCall ++ ".",
-	FunPath = compile_charge_module(FunList),
-
-	c:cd(FunPath),
+	ErlangFun = FunList ++ ".",
+	compile_charge_module(FunList),
 
 	FunctionFuns = case lists:member($:, FunList) of
 		true ->
@@ -55,12 +58,8 @@ main(["-suite", Poi, "-funs", FunList, "-to", Time]) ->
 		false ->
 			FunList
 	end, 
-	c:cd(CurrentPath),
 
 	InputFuns = string:tokens(FunctionFuns, ", []"), 
-	
-% printer(PoiValue),
-% printer(InputFuns),
 
 	Timeout = try
 		case tuple_size(PoiValue) of 
@@ -76,8 +75,9 @@ main(["-suite", Poi, "-funs", FunList, "-to", Time]) ->
 		{-1, -1} -> 
 			usage(3);
 		_ -> 
-			[secer:run_suite(PoiValue, string:strip(IFun, both), Timeout)|| IFun <- InputFuns]
-	end;
+			[secer:run_suite(PoiValue, string:strip(IFun, both), Timeout, SecerScriptPath)|| IFun <- InputFuns]
+	end,
+	remove_tmp_dir();
 
 main(["-suite", Poi, "-to", Time]) -> 
 	Res = try  
@@ -99,78 +99,6 @@ main(["-suite", Poi, "-to", Time]) ->
 			[secer:run_suite(Poi, IFun, Time)|| IFun <- InputFuns]
 	end;
 
-main(["-pois", Pois, "-funs", FunList, "-to", Time, "-cfun", CFun]) ->
-	PoisFun = Pois++".", 
-
-	case lists:member($:, Pois) of
-		true ->
-			[Module | _] = string:tokens(Pois, ":"), 
-			compile:file(Module++".erl", [{outdir, "./tmp/"}]), 
-			code:purge(list_to_atom(Module)), 
-		 	code:load_abs("./tmp/"++Module);
-		false ->
-			ok
-	end, 
-
-	{ok, PoiTokens, _} = erl_scan:string(PoisFun), 
-	{ok, PoiAbsForm} = erl_parse:parse_exprs(PoiTokens), 
-	{value, PoisRels, _} = erl_eval:exprs(PoiAbsForm, []), 
-
-	FunctionFuns = case lists:member($:, FunList) of
-		true ->
-			{ok, FunTokens, _} = erl_scan:string(FunList++"."), 
-			{ok, FunAbsForm} = erl_parse:parse_exprs(FunTokens), 
-			{value, Funs, _} = erl_eval:exprs(FunAbsForm, []), 
-			Funs;
-		false ->
-			FunList
-	end, 
-	InputFuns = string:tokens(FunctionFuns, ", []"), 
-
-	Tokens = string:tokens(CFun, ":"), 
-	{ok, CFunTokens, _} = case length(Tokens) of
-		2 ->
-			[Tok1, Tok2] = Tokens, 
-			case Tok1 of
-				 "secer" ->
-					Existent = 
-						lists:prefix("lower_than", Tok2) or 
-						lists:prefix("greater_than", Tok2) or 
-						lists:prefix("different", Tok2) or 
-						lists:prefix("show", Tok2) or 
-						lists:prefix("comp_perf", Tok2) or 
-						lists:prefix("lists_comp_perf", Tok2), 
-					case Existent of
-						true ->
-							erl_scan:string("secer_cfuns:"++Tok2++".");
-						_ ->
-							secer_functions(), 
-							halt(1)
-					end;
-				_ ->
-					erl_scan:string("fun "++CFun++"/3.")
-			end;
-		_ ->
-			erl_scan:string("fun "++CFun++"/3.")
-	end, 
-
-	{ok, CFunAbsForm} = erl_parse:parse_exprs(CFunTokens), 
-	{value, CompareFun, _} = erl_eval:exprs(CFunAbsForm, []), 
-
-	Timeout = try  
-			list_to_integer(Time)
-		catch 
-			_:_ -> 
-				{-1, -1}
-		end, 
-	case Timeout of 
-		{-1, -1} -> 
-			usage(1);
-		_ -> 
-			[secer:run(PoisRels, string:strip(IFun, both), Timeout, sequential, CompareFun)|| IFun<- InputFuns]
-			%[secer:run(PoisRels, IFun, Timeout, independent, CompareFun)|| IFun<- InputFuns]
-			%[secer:run(PoisRels, IFun, Timeout, empty)|| IFun<- InputFuns]
-	end;
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -179,34 +107,39 @@ main(["-pois", Pois, "-funs", FunList, "-to", Time, "-cfun", CFun]) ->
 									%% NEW VERSION %%
 									%%%%%%%%%%%%%%%%%
 main(["-pois", Pois, "-funs", FunList, "-to", Time, "-config", Config]) ->
-	PoisFun = Pois++".", 
+	SecerScriptPath = filename:dirname(escript:script_name()) ++ "/",
+	code:add_pathsz([SecerScriptPath++"ebin",
+					 SecerScriptPath++"cuter/ebin", 
+					 SecerScriptPath++"cuter/lib/proper/ebin"]),
+	create_tmp_dir(),
 
-	case lists:member($:, Pois) of
-		true ->
-			[Module | _] = string:tokens(Pois, ":"), 
-			compile:file(Module++".erl", [{outdir, "./tmp/"}]), 
-			code:purge(list_to_atom(Module)), 
-		 	code:load_abs("./tmp/"++Module);
-		false ->
-			ok
-	end, 
+	PoisFun = Pois++".",
+	compile_charge_module(Pois), 
 
 	{ok, PoiTokens, _} = erl_scan:string(PoisFun), 
 	{ok, PoiAbsForm} = erl_parse:parse_exprs(PoiTokens), 
 	{value, PoisRels, _} = erl_eval:exprs(PoiAbsForm, []), 
 
+	ErlangFun = FunList ++ ".",
+	compile_charge_module(FunList),
+
 	FunctionFuns = case lists:member($:, FunList) of
 		true ->
-			{ok, FunTokens, _} = erl_scan:string(FunList++"."), 
+			{ok, FunTokens, _} = erl_scan:string(ErlangFun), 
 			{ok, FunAbsForm} = erl_parse:parse_exprs(FunTokens), 
 			{value, Funs, _} = erl_eval:exprs(FunAbsForm, []), 
 			Funs;
 		false ->
 			FunList
 	end, 
+
 	InputFuns = string:tokens(FunctionFuns, ", []"), 
 
+
+
 	ConfigFun = Config++".", 
+	compile_charge_module(ConfigFun),
+
 	{ok, ConfigTokens, _} = erl_scan:string(ConfigFun), 
 	{ok, ConfigAbsForm} = erl_parse:parse_exprs(ConfigTokens), 
 	FinalConfig = 
@@ -228,14 +161,12 @@ main(["-pois", Pois, "-funs", FunList, "-to", Time, "-config", Config]) ->
 		{-1, -1} -> 
 			usage(1);
 		_ -> 
-			%io:format("~p\n", [InputFuns]), 
 			[begin
-				secer:run(PoisRels, string:strip(IFun, both), Timeout, {empty, FinalConfig})
+				secer:run(PoisRels, string:strip(IFun, both), Timeout, {empty, FinalConfig}, SecerScriptPath)
 			 end
 			|| IFun<- InputFuns]
-			%[secer:run(PoisRels, IFun, Timeout, independent, empty)|| IFun<- InputFuns]
-			%[secer:run(PoisRels, IFun, Timeout, empty)|| IFun<- InputFuns]
-	end;
+	end,
+	remove_tmp_dir();
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -243,31 +174,32 @@ main(["-pois", Pois, "-funs", FunList, "-to", Time, "-config", Config]) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 main(["-pois", Pois, "-funs", FunList, "-to", Time]) ->
-	PoisFun = Pois++".", 
+	SecerScriptPath = filename:dirname(escript:script_name()) ++ "/",
+	code:add_pathsz([SecerScriptPath++"ebin",
+					 SecerScriptPath++"cuter/ebin", 
+					 SecerScriptPath++"cuter/lib/proper/ebin"]),
+	create_tmp_dir(),
 
-	case lists:member($:, Pois) of
-		true ->
-			[Module | _] = string:tokens(Pois, ":"), 
-			compile:file(Module++".erl", [{outdir, "./tmp/"}]), 
-			code:purge(list_to_atom(Module)), 
-		 	code:load_abs("./tmp/"++Module);
-		false ->
-			ok
-	end, 
+	PoisFun = Pois++".",
+	compile_charge_module(Pois), 
 
 	{ok, PoiTokens, _} = erl_scan:string(PoisFun), 
 	{ok, PoiAbsForm} = erl_parse:parse_exprs(PoiTokens), 
 	{value, PoisRels, _} = erl_eval:exprs(PoiAbsForm, []), 
 
+	ErlangFun = FunList ++ ".",
+	compile_charge_module(FunList),
+
 	FunctionFuns = case lists:member($:, FunList) of
 		true ->
-			{ok, FunTokens, _} = erl_scan:string(FunList++"."), 
+			{ok, FunTokens, _} = erl_scan:string(ErlangFun), 
 			{ok, FunAbsForm} = erl_parse:parse_exprs(FunTokens), 
 			{value, Funs, _} = erl_eval:exprs(FunAbsForm, []), 
 			Funs;
 		false ->
 			FunList
 	end, 
+
 	InputFuns = string:tokens(FunctionFuns, ", []"), 
 
 	Timeout = try  
@@ -280,14 +212,12 @@ main(["-pois", Pois, "-funs", FunList, "-to", Time]) ->
 		{-1, -1} -> 
 			usage(1);
 		_ -> 
-			%io:format("~p\n", [InputFuns]), 
 			[begin
-				secer:run(PoisRels, string:strip(IFun, both), Timeout, {empty, empty})
+				secer:run(PoisRels, string:strip(IFun, both), Timeout, {empty, empty}, SecerScriptPath)
 			 end
 			|| IFun<- InputFuns]
-			%[secer:run(PoisRels, IFun, Timeout, independent, empty)|| IFun<- InputFuns]
-			%[secer:run(PoisRels, IFun, Timeout, empty)|| IFun<- InputFuns]
-	end;
+	end,
+	remove_tmp_dir();
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%% EXPERIMENT REPEAT %%%%%%%%
@@ -341,499 +271,154 @@ main(["-pois", Pois, "-funs", FunList, "-to", Time]) ->
 % 	end;
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-main(["-pois", Pois, "-funs", FunList, "-to", Time, "-silent"]) ->
-	PoisFun = Pois++".", 
+% main(["-pois", Pois, "-funs", FunList, "-to", Time, "-silent"]) ->
+% 	PoisFun = Pois++".", 
 
-	case lists:member($:, Pois) of
-		true ->
-			[Module | _] = string:tokens(Pois, ":"), 
-			compile:file(Module++".erl", []), 
-			code:purge(list_to_atom(Module)), 
-		 	code:load_abs(Module);
-		false ->
-			ok
-	end, 
+% 	case lists:member($:, Pois) of
+% 		true ->
+% 			[Module | _] = string:tokens(Pois, ":"), 
+% 			compile:file(Module++".erl", []), 
+% 			code:purge(list_to_atom(Module)), 
+% 		 	code:load_abs(Module);
+% 		false ->
+% 			ok
+% 	end, 
 
-	{ok, PoiTokens, _} = erl_scan:string(PoisFun), 
-	{ok, PoiAbsForm} = erl_parse:parse_exprs(PoiTokens), 
-	{value, PoisRels, _} = erl_eval:exprs(PoiAbsForm, []), 
+% 	{ok, PoiTokens, _} = erl_scan:string(PoisFun), 
+% 	{ok, PoiAbsForm} = erl_parse:parse_exprs(PoiTokens), 
+% 	{value, PoisRels, _} = erl_eval:exprs(PoiAbsForm, []), 
 
-	FunctionFuns = case lists:member($:, FunList) of
-		true ->
-			{ok, FunTokens, _} = erl_scan:string(FunList++"."), 
-			{ok, FunAbsForm} = erl_parse:parse_exprs(FunTokens), 
-			{value, Funs, _} = erl_eval:exprs(FunAbsForm, []), 
-			Funs;
-		false ->
-			FunList
-	end, 
-	InputFuns = string:tokens(FunctionFuns, ", []"), 
+% 	FunctionFuns = case lists:member($:, FunList) of
+% 		true ->
+% 			{ok, FunTokens, _} = erl_scan:string(FunList++"."), 
+% 			{ok, FunAbsForm} = erl_parse:parse_exprs(FunTokens), 
+% 			{value, Funs, _} = erl_eval:exprs(FunAbsForm, []), 
+% 			Funs;
+% 		false ->
+% 			FunList
+% 	end, 
+% 	InputFuns = string:tokens(FunctionFuns, ", []"), 
 
-	Timeout = try  
-			list_to_integer(Time)
-		catch 
-			_:_ -> 
-				{-1, -1}
-		end, 
-	case Timeout of 
-		{-1, -1} -> 
-			usage(1);
-		_ -> 
-			%io:format("~p\n", [InputFuns]), 
-			[begin
-				secer:run(PoisRels, string:strip(IFun, both), Timeout, sequential, empty, silent)
-			 end
-			|| IFun<- InputFuns]
-	end;
+% 	Timeout = try  
+% 			list_to_integer(Time)
+% 		catch 
+% 			_:_ -> 
+% 				{-1, -1}
+% 		end, 
+% 	case Timeout of 
+% 		{-1, -1} -> 
+% 			usage(1);
+% 		_ -> 
+% 			%io:format("~p\n", [InputFuns]), 
+% 			[begin
+% 				secer:run(PoisRels, string:strip(IFun, both), Timeout, sequential, empty, silent)
+% 			 end
+% 			|| IFun<- InputFuns]
+% 	end;
 
-%%%%%%%%%%%%%%%%%%%
-%%% FULL RANDOM %%%
-%%%%%%%%%%%%%%%%%%%
+% %%%%%%%%%%%%%%%%%%%
+% %%% FULL RANDOM %%%
+% %%%%%%%%%%%%%%%%%%%
 
-main(["-pois", Pois, "-funs", FunList, "-to", Time, "-silent", "-random"]) ->
-	PoisFun = Pois++".", 
+% main(["-pois", Pois, "-funs", FunList, "-to", Time, "-silent", "-random"]) ->
+% 	PoisFun = Pois++".", 
 
-	case lists:member($:, Pois) of
-		true ->
-			[Module | _] = string:tokens(Pois, ":"), 
-			compile:file(Module++".erl", []), 
-			code:purge(list_to_atom(Module)), 
-		 	code:load_abs(Module);
-		false ->
-			ok
-	end, 
+% 	case lists:member($:, Pois) of
+% 		true ->
+% 			[Module | _] = string:tokens(Pois, ":"), 
+% 			compile:file(Module++".erl", []), 
+% 			code:purge(list_to_atom(Module)), 
+% 		 	code:load_abs(Module);
+% 		false ->
+% 			ok
+% 	end, 
 
-	{ok, PoiTokens, _} = erl_scan:string(PoisFun), 
-	{ok, PoiAbsForm} = erl_parse:parse_exprs(PoiTokens), 
-	{value, PoisRels, _} = erl_eval:exprs(PoiAbsForm, []), 
+% 	{ok, PoiTokens, _} = erl_scan:string(PoisFun), 
+% 	{ok, PoiAbsForm} = erl_parse:parse_exprs(PoiTokens), 
+% 	{value, PoisRels, _} = erl_eval:exprs(PoiAbsForm, []), 
 
-	FunctionFuns = case lists:member($:, FunList) of
-		true ->
-			{ok, FunTokens, _} = erl_scan:string(FunList++"."), 
-			{ok, FunAbsForm} = erl_parse:parse_exprs(FunTokens), 
-			{value, Funs, _} = erl_eval:exprs(FunAbsForm, []), 
-			Funs;
-		false ->
-			FunList
-	end, 
-	InputFuns = string:tokens(FunctionFuns, ", []"), 
+% 	FunctionFuns = case lists:member($:, FunList) of
+% 		true ->
+% 			{ok, FunTokens, _} = erl_scan:string(FunList++"."), 
+% 			{ok, FunAbsForm} = erl_parse:parse_exprs(FunTokens), 
+% 			{value, Funs, _} = erl_eval:exprs(FunAbsForm, []), 
+% 			Funs;
+% 		false ->
+% 			FunList
+% 	end, 
+% 	InputFuns = string:tokens(FunctionFuns, ", []"), 
 
-	Timeout = try  
-			list_to_integer(Time)
-		catch 
-			_:_ -> 
-				{-1, -1}
-		end, 
-	case Timeout of 
-		{-1, -1} -> 
-			usage(1);
-		_ -> 
-			%io:format("~p\n", [InputFuns]), 
-			[begin
-				secer:run(PoisRels, string:strip(IFun, both), Timeout, sequential, empty, silent, random)
-			 end
-			|| IFun<- InputFuns]
-	end;
-
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-main(["-pois", Pois, "-funs", FunList, "-to", Time, Flag]) ->
-	PoisFun = Pois++".", 
-
-	case lists:member($:, Pois) of
-		true ->
-			[Module | _] = string:tokens(Pois, ":"), 
-			compile:file(Module++".erl", []), 
-			code:purge(list_to_atom(Module)), 
-		 	code:load_abs(Module);
-		false ->
-			ok
-	end, 
-
-	{ok, PoiTokens, _} = erl_scan:string(PoisFun), 
-	{ok, PoiAbsForm} = erl_parse:parse_exprs(PoiTokens), 
-	{value, PoisRels, _} = erl_eval:exprs(PoiAbsForm, []), 
-
-	FunctionFuns = case lists:member($:, FunList) of
-		true ->
-			{ok, FunTokens, _} = erl_scan:string(FunList++"."), 
-			{ok, FunAbsForm} = erl_parse:parse_exprs(FunTokens), 
-			{value, Funs, _} = erl_eval:exprs(FunAbsForm, []), 
-			Funs;
-		false ->
-			FunList
-	end, 
-	InputFuns = string:tokens(FunctionFuns, ", []"), 
-
-	Timeout = try  
-			list_to_integer(Time)
-		catch 
-			_:_ -> 
-				{-1, -1}
-		end, 
-	case Timeout of 
-		{-1, -1} -> 
-			usage(1);
-		_ -> 
-			%[secer:run(PoisRels, IFun, Timeout, independent, empty)|| IFun<- InputFuns]
-			%[secer:run(PoisRels, IFun, Timeout, empty)|| IFun<- InputFuns]
-			case Flag of
-				"-independent" ->
-					[secer:run(PoisRels, string:strip(IFun, both), Timeout, independent, empty)|| IFun<- InputFuns];
-				_ ->
-					[secer:run(PoisRels, string:strip(IFun, both), Timeout, sequential, empty)|| IFun<- InputFuns]		
-			end
-	end;
+% 	Timeout = try  
+% 			list_to_integer(Time)
+% 		catch 
+% 			_:_ -> 
+% 				{-1, -1}
+% 		end, 
+% 	case Timeout of 
+% 		{-1, -1} -> 
+% 			usage(1);
+% 		_ -> 
+% 			%io:format("~p\n", [InputFuns]), 
+% 			[begin
+% 				secer:run(PoisRels, string:strip(IFun, both), Timeout, sequential, empty, silent, random)
+% 			 end
+% 			|| IFun<- InputFuns]
+% 	end;
 
 
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% %%%%%%%%%%% USELESS %%%%%%%%%%%%%%
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% main(["-pois", Pois, "-funs", FunList, "-to", Time, Flag]) ->
+% 	PoisFun = Pois++".", 
+
+% 	case lists:member($:, Pois) of
+% 		true ->
+% 			[Module | _] = string:tokens(Pois, ":"), 
+% 			compile:file(Module++".erl", []), 
+% 			code:purge(list_to_atom(Module)), 
+% 		 	code:load_abs(Module);
+% 		false ->
+% 			ok
+% 	end, 
+
+% 	{ok, PoiTokens, _} = erl_scan:string(PoisFun), 
+% 	{ok, PoiAbsForm} = erl_parse:parse_exprs(PoiTokens), 
+% 	{value, PoisRels, _} = erl_eval:exprs(PoiAbsForm, []), 
+
+% 	FunctionFuns = case lists:member($:, FunList) of
+% 		true ->
+% 			{ok, FunTokens, _} = erl_scan:string(FunList++"."), 
+% 			{ok, FunAbsForm} = erl_parse:parse_exprs(FunTokens), 
+% 			{value, Funs, _} = erl_eval:exprs(FunAbsForm, []), 
+% 			Funs;
+% 		false ->
+% 			FunList
+% 	end, 
+% 	InputFuns = string:tokens(FunctionFuns, ", []"), 
+
+% 	Timeout = try  
+% 			list_to_integer(Time)
+% 		catch 
+% 			_:_ -> 
+% 				{-1, -1}
+% 		end, 
+% 	case Timeout of 
+% 		{-1, -1} -> 
+% 			usage(1);
+% 		_ -> 
+% 			%[secer:run(PoisRels, IFun, Timeout, independent, empty)|| IFun<- InputFuns]
+% 			%[secer:run(PoisRels, IFun, Timeout, empty)|| IFun<- InputFuns]
+% 			case Flag of
+% 				"-independent" ->
+% 					[secer:run(PoisRels, string:strip(IFun, both), Timeout, independent, empty)|| IFun<- InputFuns];
+% 				_ ->
+% 					[secer:run(PoisRels, string:strip(IFun, both), Timeout, sequential, empty)|| IFun<- InputFuns]		
+% 			end
+% 	end;
 
 
-
-
-
-
-
-
-
-
-main([
-		"-f", File1, 
-		"-li", Line1, 
-		"-var", Var1, 
-		"-oc", Oc1, 
-		"-f", File2, 
-		"-li", Line2, 
-		"-var", Var2, 
-		"-oc", Oc2, 
-		"-funs", Fun, 
-		"-to", Time
-	]) -> 
-
-        InputFuns = string:tokens(Fun, ", []"), 
-		Res = try  
-			{list_to_integer(Line1), 
-			 list_to_integer(Line2), 
-			 list_to_integer(Oc1), 
-			 list_to_integer(Oc2), 
-			 list_to_integer(Time)}
-		catch 
-			_:_ -> 
-				{-1, -1}
-		end, 
-		case Res of 
-			{-1, -1} -> 
-				usage(1);
-			{L1, L2, O1, O2, T} ->
-				PoisRels = 
-					[{{list_to_atom(File1), L1, {var, list_to_atom(Var1)}, O1}, 
-					  {list_to_atom(File2), L2, {var, list_to_atom(Var2)}, O2}}], 
-				[secer:run(PoisRels, IFun, T, sequential, empty)|| IFun<- InputFuns] %NEWFORMAT
-				
-		end;
-main([
-		"-f", File1, 
-		"-li", Line1, 
-		"-var", Var1, 
-		"-oc", Oc1, 
-		"-f", File2, 
-		"-li", Line2, 
-		"-var", Var2, 
-		"-oc", Oc2, 
-		"-to", Time
-	]) -> 
-
-		Res = try  
-			{list_to_integer(Line1), 
-			 list_to_integer(Line2), 
-			 list_to_integer(Oc1), 
-			 list_to_integer(Oc2), 
-			 list_to_integer(Time)}
-		catch 
-			_:_ -> 
-				{-1, -1}
-		end, 
-		case Res of 
-			{-1, -1} -> 
-				usage(1);
-			{L1, L2, O1, O2, T} -> 
-				InputFuns = secer_input_gen:get_exports(File1), 
-				PoisRels = 
-					[{{list_to_atom(File1), L1, {var, list_to_atom(Var1)}, O1}, 
-					  {list_to_atom(File2), L2, {var, list_to_atom(Var2)}, O2}}], 
-				[secer:run(PoisRels, IFun, T, sequential, empty)|| IFun<- InputFuns] %NEWFORMAT
-		end;
-main([
-		"-f", File1, 
-		"-li", Line1, 
-		"-var", Var1, 
-		"-f", File2, 
-		"-li", Line2, 
-		"-var", Var2, 
-		"-funs", Fun, 
-		"-to", Time
-	]) -> 
-
-        InputFuns = string:tokens(Fun, ", []"), 
-		Res = try  
-			list_to_integer(Line1), 
-			list_to_integer(Line2), 
-			list_to_integer(Time)
-		catch 
-			_:_ -> 
-				{-1, -1}
-		end, 
-		case Res of 
-			{-1, -1} -> 
-				usage(1);
-			{L1, L2, T} -> 
-				PoisRels = 
-					[{{list_to_atom(File1), L1, {var, list_to_atom(Var1)}, 1}, 
-					  {list_to_atom(File2), L2, {var, list_to_atom(Var2)}, 1}}], 
-				[secer:run(PoisRels, IFun, T, sequential, empty)|| IFun<- InputFuns] %NEWFORMAT
-		end;
-main([
-		"-f", File1, 
-		"-li", Line1, 
-		"-var", Var1, 
-		"-f", File2, 
-		"-li", Line2, 
-		"-var", Var2, 
-		"-to", Time
-	]) -> 
-
-		Res = try  
-			list_to_integer(Line1), 
-			list_to_integer(Line2), 
-			list_to_integer(Time)
-		catch 
-			_:_ -> 
-				{-1, -1}
-		end, 
-		case Res of 
-			{-1, -1} -> 
-				usage(1);
-			{L1, L2, T} -> 
-				InputFuns = secer_input_gen:get_exports(File1), 
-				PoisRels = 
-					[{{list_to_atom(File1), L1, {var, list_to_atom(Var1)}, 1}, 
-					  {list_to_atom(File2), L2, {var, list_to_atom(Var2)}, 1}}], 
-				[secer:run(PoisRels, IFun, T, sequential, empty)|| IFun<- InputFuns] %NEWFORMAT
-		end;
-
-main([
-		"-f", File1, 
-		"-li", Line1, 
-		"-var", Var1, 
-		"-f", File2, 
-		"-li", Line2, 
-		"-var", Var2, 
-		"-oc", Oc2, 
-		"-funs", Fun, 
-		"-to", Time
-	]) -> 
-
-        InputFuns = string:tokens(Fun, ", []"), 
-		Res = try  
-			list_to_integer(Line1), 
-			list_to_integer(Line2), 
-			list_to_integer(Oc2), 
-			list_to_integer(Time)
-		catch 
-			_:_ -> 
-				{-1, -1}
-		end, 
-		case Res of 
-			{-1, -1} -> 
-				usage(1);
-			{L1, L2, O2, T} -> 
-				PoisRels = 
-					[{{list_to_atom(File1), L1, {var, list_to_atom(Var1)}, 1}, 
-					  {list_to_atom(File2), L2, {var, list_to_atom(Var2)}, O2}}], 
-				[secer:run(PoisRels, IFun, T, sequential, empty)|| IFun<- InputFuns] %NEWFORMAT
-		end;
-main([
-		"-f", File1, 
-		"-li", Line1, 
-		"-var", Var1, 
-		"-f", File2, 
-		"-li", Line2, 
-		"-var", Var2, 
-		"-oc", Oc2, 
-		"-to", Time
-	]) -> 
-
-		Res = try  
-			list_to_integer(Line1), 
-			list_to_integer(Line2), 
-			list_to_integer(Oc2), 
-			list_to_integer(Time)
-		catch 
-			_:_ -> 
-				{-1, -1}
-		end, 
-		case Res of 
-			{-1, -1} -> 
-				usage(1);
-			{L1, L2, O2, T} -> 
-				InputFuns = secer_input_gen:get_exports(File1), 
-				PoisRels = 
-					[{{list_to_atom(File1), L1, {var, list_to_atom(Var1)}, 1}, 
-					  {list_to_atom(File2), L2, {var, list_to_atom(Var2)}, O2}}], 
-				[secer:run(PoisRels, IFun, T, sequential, empty)|| IFun<- InputFuns] %NEWFORMAT
-		end;
-main([
-		"-f", File1, 
-		"-li", Line1, 
-		"-var", Var1, 
-		"-oc", Oc1, 
-		"-f", File2, 
-		"-li", Line2, 
-		"-var", Var2, 
-		"-funs", Fun, 
-		"-to", Time
-	]) -> 
-
-        InputFuns = string:tokens(Fun, ", []"), 
-		Res = try  
-			list_to_integer(Line1), 
-			list_to_integer(Line2), 
-			list_to_integer(Oc1), 
-			list_to_integer(Time)
-		catch 
-			_:_ -> 
-				{-1, -1}
-		end, 
-		case Res of 
-			{-1, -1} -> 
-				usage(1);
-			{L1, L2, O1, T} -> 
-				PoisRels = 
-					[{{list_to_atom(File1), L1, {var, list_to_atom(Var1)}, O1}, 
-					  {list_to_atom(File2), L2, {var, list_to_atom(Var2)}, 1}}], 
-				[secer:run(PoisRels, IFun, T, sequential, empty)|| IFun<- InputFuns] %NEWFORMAT
-		end;
-main([
-		"-f", File1, 
-		"-li", Line1, 
-		"-var", Var1, 
-		"-oc", Oc1, 
-		"-f", File2, 
-		"-li", Line2, 
-		"-var", Var2, 
-		"-to", Time
-	]) -> 
-		Res = try  
-			list_to_integer(Line1), 
-			list_to_integer(Line2), 
-			list_to_integer(Oc1), 
-			list_to_integer(Time)
-		catch 
-			_:_ -> 
-				{-1, -1}
-		end, 
-		case Res of 
-			{-1, -1} -> 
-				usage(1);
-			{L1, L2, O1, T} -> 
-				InputFuns = secer_input_gen:get_exports(File1), 
-				PoisRels = 
-					[{{list_to_atom(File1), L1, {var, list_to_atom(Var1)}, O1}, 
-					  {list_to_atom(File2), L2, {var, list_to_atom(Var2)}, 1}}], 
-				[secer:run(PoisRels, IFun, T, sequential, empty)|| IFun<- InputFuns] %NEWFORMAT
-		end;
-
-% SOLO UN ARCHIVO, ¿eliminar esto?
-main([
-		"-f", File, 
-		"-li", Line, 
-		"-var", Var, 
-		"-oc", Oc, 
-		"-funs", Fun, 
-		"-to", Time
-	]) -> 
-
-        InputFuns = string:tokens(Fun, ", []"), 
-		Res = try  
-			list_to_integer(Line), 
-			list_to_integer(Oc), 
-			list_to_integer(Time)
-		catch 
-			_:_ -> 
-				{-1, -1}
-		end, 
-		case Res of 
-			{-1, -1} -> 
-				usage(2);
-			_ -> 
-				[secer:run([File, Line, Var, Oc, IFun, Time])|| IFun<- InputFuns]
-		end;
-main([
-		"-f", File, 
-		"-li", Line, 
-		"-var", Var, 
-		"-oc", Oc, 
-		"-to", Time
-	]) -> 
-		Res = try  
-			list_to_integer(Line), 
-			list_to_integer(Oc), 
-			list_to_integer(Time)
-		catch 
-			_:_ -> 
-				{-1, -1}
-		end, 
-		case Res of 
-			{-1, -1} -> 
-				usage(2);
-			_ -> 
-				InputFuns = secer_input_gen:get_exports(File), 
-				[secer:run([File, Line, Var, Oc, IFun, Time])|| IFun<- InputFuns]
-		end;
-main([
-		"-f", File, 
-		"-li", Line, 
-		"-var", Var, 
-		"-funs", Fun, 
-		"-to", Time
-	]) -> 
-
-        InputFuns = string:tokens(Fun, ", []"), 
-		Res = try  
-			list_to_integer(Line), 
-			list_to_integer(Time)
-		catch 
-			_:_ -> 
-				{-1, -1}
-		end, 
-		case Res of 
-			{-1, -1} -> 
-				usage(2);
-			_ -> 
-				[secer:run([File, Line, Var, "1", IFun, Time])|| IFun<- InputFuns]
-		end;
-main([
-		"-f", File, 
-		"-li", Line, 
-		"-var", Var, 
-		"-to", Time
-	]) -> 
-		Res = try  
-			list_to_integer(Line), 
-			list_to_integer(Time)
-		catch 
-			_:_ -> 
-				{-1, -1}
-		end, 
-		case Res of 
-			{-1, -1} -> 
-				usage(2);
-			_ -> 
-				InputFuns = secer_input_gen:get_exports(File), 
-				[secer:run([File, Line, Var, "1", IFun, Time])|| IFun<- InputFuns]
-		end;
 main(_) ->
     usage(1).
 
@@ -851,14 +436,6 @@ usage(3) ->
 	io:format("Usage: secer -suite POI -funs input_functions -to timeout\n"), 
 	halt(1).
 
-secer_functions() ->
-	io:format("The currently available secer compare functions are:
-    lower_than()
-    greater_than()
-    different()
-    show()
-    comp_perf()
-    lists_comp_perf()\n").
 help_message() ->
 	"
   Usage: secer [--help] -f file -li line -var variable [-oc occurrence] 

@@ -1,10 +1,10 @@
 -module(secer_input_gen).
--export([main/4, get_exports/1, main_suite/3]).
+-export([main/5, get_exports/1, main_suite/4]).
 
 -define(TMP_PATH, "./tmp/").
 
 
-main_suite(Poi, ExecFun, Time) ->
+main_suite(Poi, ExecFun, Time, ScriptPath) ->
 	try 
 		register(cuterIn, spawn(secer_trace, init, [])), 
 		register(var_gen, spawn(secer_fv_server, init, [])), 
@@ -32,7 +32,7 @@ main_suite(Poi, ExecFun, Time) ->
 			0 ->
 				Binary = instrument_code(Poi,File), 
 				cc_server ! die, 
-				Node = node_instantiation("secer_trace_suite", File, Binary, FunName, Time*1000 div 3), 
+				Node = node_instantiation("secer_trace_suite", File, Binary, FunName, Time*1000 div 3, ScriptPath), 
 
 				execute_input(Node, []), 
 				secer ! continue;
@@ -42,13 +42,13 @@ main_suite(Poi, ExecFun, Time) ->
 				TimeOut = (Time*1000) div 3, 
 				% DOES THIS WORK WHEN CUTER RETURNS MORE THAN 1 INPUT?
 				%[Inputs] = execute_cuter(ModuleName, FunName, ParamClauses, TypeDicts, TimeOut), 
-				Inputs = execute_cuter(ModuleName, FunName, ParamClauses, TypeDicts, TimeOut), 
+				Inputs = execute_cuter(ModuleName, FunName, ParamClauses, TypeDicts, TimeOut, ScriptPath), 
 
 				% PART 2: EXECUTE CUTER AND GENERATE RANDOM
 				Binary = instrument_code(Poi,File), 
 				cc_server ! die, 
 
-				Node = node_instantiation("secer_trace_suite", File, Binary, FunName, Time*1000 div 3), 
+				Node = node_instantiation("secer_trace_suite", File, Binary, FunName, Time*1000 div 3, ScriptPath), 
 				{ok, Fd} = file:open(?TMP_PATH++"cuter.txt", [write]), 
 				Self = self(), 
 				Ref = make_ref(), 
@@ -107,7 +107,7 @@ main_suite(Poi, ExecFun, Time) ->
 %%%%%%%%%%%%%%%%%
 % INPUT 2 FILES %
 %%%%%%%%%%%%%%%%%
-main(PoisRels, ExecFun, Time, CConf) ->
+main(PoisRels, ExecFun, Time, CConf, ScriptPath) ->
 	try 
 		register(cuterIn, spawn(secer_trace, init, [])), 
 		register(var_gen, spawn(secer_fv_server, init, [])), 
@@ -147,8 +147,8 @@ main(PoisRels, ExecFun, Time, CConf) ->
 			0 ->
 				{BinaryOld, BinaryNew} = instrument_code(PoisRels, FileOld, FileNew, CConf), 
 				cc_server ! die, 
-				NodeOld = node_instantiation("secer_trace_old", FileOld, BinaryOld, FunName, Time*1000 div 3), 
-				NodeNew = node_instantiation("secer_trace_new", FileNew, BinaryNew, FunName, Time*1000 div 3), 
+				NodeOld = node_instantiation("secer_trace_old", FileOld, BinaryOld, FunName, Time*1000 div 3, ScriptPath), 
+				NodeNew = node_instantiation("secer_trace_new", FileNew, BinaryNew, FunName, Time*1000 div 3, ScriptPath), 
 
 				execute_input(NodeOld, NodeNew, []), 
 				secer ! continue;
@@ -156,14 +156,14 @@ main(PoisRels, ExecFun, Time, CConf) ->
 				% PART 1
 				{ParamClauses, TypeDicts} = analyze_types(FileOld, FunName, Arity), 
 				TimeOut = (Time*1000) div 3, 
-				[Inputs] = execute_cuter(ModuleName1, ModuleName2, FunName, ParamClauses, TypeDicts, TimeOut), 
+				[Inputs] = execute_cuter(ModuleName1, ModuleName2, FunName, ParamClauses, TypeDicts, TimeOut, ScriptPath), 
 				% PART 2
 %%%%%%%			
 				{BinaryOld, BinaryNew} = instrument_code(PoisRels, FileOld, FileNew, CConf), 
 				cc_server ! die, 
 
-				NodeOld = node_instantiation("secer_trace_old", FileOld, BinaryOld, FunName, 2*TimeOut), 
-				NodeNew = node_instantiation("secer_trace_new", FileNew, BinaryNew, FunName, 2*TimeOut), 
+				NodeOld = node_instantiation("secer_trace_old", FileOld, BinaryOld, FunName, 2*TimeOut, ScriptPath), 
+				NodeNew = node_instantiation("secer_trace_new", FileNew, BinaryNew, FunName, 2*TimeOut, ScriptPath), 
 
 %%%%%%%
 				{ok, Fd} = file:open(?TMP_PATH++"cuter.txt", [write]), 
@@ -260,12 +260,13 @@ analyze_types(FileName, FunName, Arity) ->
 %%%% COMMON PART %%%%
 %%%%%%%%%%%%%%%%%%%%%
 
-execute_cuter(ModuleName, FunName, ParamClauses, Dicts, TimeOut) ->
+execute_cuter(ModuleName, FunName, ParamClauses, Dicts, TimeOut, ScriptPath) ->
 	Params = lists:nth(rand:uniform(length(ParamClauses)), ParamClauses), 
 	{ok, Dic} = dict:find(Params, Dicts), 
 
 	Input = (catch generate_instance({Dic, Params})), 
-	case file:open("./config/nocuter.txt", [read]) of
+	%TODO GET SECER SCRIPT PATH
+	case file:open(ScriptPath++"config/nocuter.txt", [read]) of
 		{ok, _} ->
 			%printer("without cuter"), 
 			[Input];
@@ -275,12 +276,12 @@ execute_cuter(ModuleName, FunName, ParamClauses, Dicts, TimeOut) ->
 			[Input|CuterInputs]
 	end.
 
-execute_cuter(ModuleName1, ModuleName2, FunName, ParamClauses, Dicts, TimeOut) ->
+execute_cuter(ModuleName1, ModuleName2, FunName, ParamClauses, Dicts, TimeOut, ScriptPath) ->
 	Params = lists:nth(rand:uniform(length(ParamClauses)), ParamClauses), 
 	{ok, Dic} = dict:find(Params, Dicts), 
 
 	Input = (catch generate_instance({Dic, Params})), 
-	case file:open("./config/nocuter.txt", [read]) of
+	case file:open(ScriptPath++"config/nocuter.txt", [read]) of
 		{ok, _} ->
 			%printer("without cuter"), 
 			[Input];
@@ -841,10 +842,10 @@ get_id(POI, Dict) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%% NODE SEPARATION %%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-node_instantiation(NodeName, FilePath, Binary, FunName, TO) ->	
+node_instantiation(NodeName, FilePath, Binary, FunName, TO, ScriptPath) ->	
     TraceNode = list_to_atom(NodeName++"@"++after_char($@,atom_to_list(node()))),	
     rpc:call(TraceNode, code, purge, [secer_trace]), 
-	rpc:call(TraceNode, code, load_abs, ["./ebin/secer_trace"]), 
+	rpc:call(TraceNode, code, load_abs, [ScriptPath++"ebin/secer_trace"]), 
 	rpc:call(TraceNode, erlang, register, [tracer, spawn(TraceNode, secer_trace, init, [])]), 
 
 	FileDir = filename:dirname(FilePath), 
