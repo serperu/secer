@@ -4,4 +4,4 @@ $ git clone --recursive https://github.com/serperu/secer.git
 $ cd secer/
 $ make 
 
-$ ./secer -pois "test_happy:rel1()" -funs "test_happy:funs()" -to 15
+$ secer -pois "test_happy:rel1()" -funs "test_happy:funs()" -to 15
